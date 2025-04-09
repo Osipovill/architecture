@@ -10,7 +10,12 @@ services:
     volumes:
       - redis_data:/data
       - ./logs/redis:/var/log/redis
-      - ./init/redis:/docker-entrypoint-initdb.d
+    command: >
+      redis-server
+      --loglevel warning
+      --logfile /var/log/redis/redis.log
+      --save 60 1
+      --appendonly yes
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -30,7 +35,6 @@ services:
     volumes:
       - mongodb_data:/data/db
       - ./logs/mongodb:/var/log/mongodb
-      - ./init/mongodb:/docker-entrypoint-initdb.d
     healthcheck:
       test: [ "CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')" ]
       interval: 15s
