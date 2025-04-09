@@ -35,6 +35,10 @@ services:
     volumes:
       - mongodb_data:/data/db
       - ./logs/mongodb:/var/log/mongodb
+      - ./config/mongod.conf:/etc/mongod.conf
+    command: 
+      - mongod
+      - --config=/etc/mongod.conf
     healthcheck:
       test: [ "CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')" ]
       interval: 15s
