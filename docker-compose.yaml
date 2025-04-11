@@ -34,15 +34,35 @@ services:
     volumes:
       - mongodb_data:/data/db
       - ./logs/mongodb:/var/log/mongodb
-      - ./config/mongod.conf:/etc/mongod.conf
+      - ./init/mongodb:/docker-entrypoint-initdb.d
     command: 
       - mongod
-      - --config=/etc/mongod.conf
+      - --auth
+      - --bind_ip_all
     healthcheck:
-      test: [ "CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')" ]
+      test: |
+        mongosh --quiet --eval '
+          db.getSiblingDB("admin").auth("admin", "P@ssw0rd");
+          db.adminCommand("ping")
+        '
       interval: 15s
       timeout: 10s
       retries: 3
+  mongo-init:
+    image: mongo:7.0
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./init/mongodb:/scripts
+    command: >
+      bash -c "
+      until mongosh --host mongodb -u admin -p P@ssw0rd --authenticationDatabase admin --eval 'db.adminCommand(\"ping\")'; do
+        sleep 1
+      done
+      mongosh --host mongodb -u admin -p P@ssw0rd --authenticationDatabase admin --file /scripts/init-mongodb.js
+      "
+    restart: on-failure
 
   neo4j:
     image: neo4j:5.16-community
@@ -55,10 +75,12 @@ services:
       NEO4J_AUTH: neo4j/P@ssw0rd
       NEO4J_ACCEPT_LICENSE_AGREEMENT: "yes"
       NEO4J_dbms_logs_debug_level: INFO
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
       - ./logs/neo4j:/logs
+      - ./init/neo4j:/var/lib/neo4j/import
     healthcheck:
       test: [ "CMD", "cypher-shell", "-u", "neo4j", "-p", "P@ssw0rd", "RETURN 1" ]
       interval: 20s
@@ -66,15 +88,13 @@ services:
       retries: 3
 
   elasticsearch:
-    build: ./init/elasticsearch
+    image: elasticsearch:7.17.10
     container_name: elasticsearch
     restart: unless-stopped
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - ELASTIC_USERNAME=admin
-      - ELASTIC_PASSWORD=P@ssw0rd
-      - path.logs=/usr/share/elasticsearch/logs
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
     ulimits:
       memlock:
         soft: -1
@@ -84,9 +104,9 @@ services:
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
       - ./logs/elasticsearch:/usr/share/elasticsearch/logs
-      - ./init/elasticsearch:/docker-entrypoint-initdb.d
+      - ./init/elasticsearch:/usr/share/elasticsearch/config/scripts
     healthcheck:
-      test: [ "CMD-SHELL", "curl -sSf -u admin:P@ssw0rd http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"' || exit 1" ]
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
       interval: 30s
       timeout: 20s
       retries: 5
@@ -100,8 +120,6 @@ services:
       POSTGRES_PASSWORD: P@ssw0rd
       POSTGRES_DB: university
       PGDATA: /var/lib/postgresql/data/pgdata
-      POSTGRES_INITDB_ARGS: "--data-checksums"
-      POSTGRES_HOST_AUTH_METHOD: "trust"
     ports:
       - "5433:5432"
     volumes:
