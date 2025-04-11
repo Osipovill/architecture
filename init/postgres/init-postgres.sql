@@ -1,116 +1,261 @@
--- Создание схемы для PostgreSQL базы данных "university"
+-- Удаляем существующую схему (для чистоты) и создаем новую
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
 
--- 1. Таблица Departments
-CREATE TABLE Departments (
-    department_id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL
+-- Создаем таблицы
+
+-- Университеты
+CREATE TABLE universities (
+  university_id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL
 );
 
--- 2. Таблица Specialties
-CREATE TABLE Specialties (
-    specialty_id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    department_id INT REFERENCES Departments(department_id)
+-- Институты
+CREATE TABLE institutes (
+  institute_id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  university_id INT REFERENCES universities(university_id)
 );
 
--- 3. Таблица Groups
-CREATE TABLE Groups (
-    group_id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    specialty_id INT REFERENCES Specialties(specialty_id)
+-- Кафедры (departments) – добавляем внешний ключ institute_id
+CREATE TABLE departments (
+  dept_id SERIAL PRIMARY KEY,
+  name TEXT,
+  head TEXT,
+  phone TEXT,
+  institute_id INT REFERENCES institutes(institute_id)
 );
 
--- 4. Таблица Students
-CREATE TABLE Students (
-    student_id SERIAL PRIMARY KEY,
-    full_name VARCHAR(255) NOT NULL,
-    group_id INT REFERENCES Groups(group_id)
+-- Специальности
+CREATE TABLE specialties (
+  spec_id SERIAL PRIMARY KEY,
+  name TEXT,
+  code VARCHAR(10),
+  dept_id INT REFERENCES departments(dept_id)
 );
 
--- 5. Таблица Courses
-CREATE TABLE Courses (
-    course_id SERIAL PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    description TEXT
+-- Курсы
+CREATE TABLE courses (
+  course_id SERIAL PRIMARY KEY,
+  title TEXT,
+  description TEXT
 );
 
--- 6. Таблица Lectures
-CREATE TABLE Lectures (
-    lecture_id SERIAL PRIMARY KEY,
-    course_id INT REFERENCES Courses(course_id),
-    topic VARCHAR(255) NOT NULL,
-    lecture_date DATE,
-    duration_hours INT
+-- Семестры
+CREATE TABLE semesters (
+  semester_id SERIAL PRIMARY KEY,
+  title TEXT,
+  year INT,
+  spec_id INT REFERENCES specialties(spec_id),
+  course_id INT REFERENCES courses(course_id)
 );
 
--- 7. Таблица Attendance
-CREATE TABLE Attendance (
-    attendance_id SERIAL PRIMARY KEY,
-    student_id INT REFERENCES Students(student_id),
-    lecture_id INT REFERENCES Lectures(lecture_id),
-    attended BOOLEAN DEFAULT FALSE
+-- Преподаватели
+CREATE TABLE professors (
+  professor_id SERIAL PRIMARY KEY,
+  full_name TEXT,
+  rank TEXT,
+  dept_id INT REFERENCES departments(dept_id),
+  course_id INT REFERENCES courses(course_id)
 );
 
--- 8. Таблица Curriculum
-CREATE TABLE Curriculum (
-    curriculum_id SERIAL PRIMARY KEY,
-    group_id INT REFERENCES Groups(group_id),
-    course_id INT REFERENCES Courses(course_id),
-    year INT,
-    semester INT,
-    planned_hours INT
+-- Группы
+CREATE TABLE groups (
+  group_id SERIAL PRIMARY KEY,
+  name TEXT,
+  year INT,
+  spec_id INT REFERENCES specialties(spec_id)
 );
 
--- Вставка данных
+-- Студенты
+CREATE TABLE students (
+  student_id SERIAL PRIMARY KEY,
+  full_name TEXT,
+  code VARCHAR(20),
+  group_id INT REFERENCES groups(group_id)
+);
 
--- Вставляем кафедру
-INSERT INTO Departments (name) VALUES ('Кафедра Информатики');
+-- Занятия
+CREATE TABLE classes (
+  class_id SERIAL PRIMARY KEY,
+  type TEXT,
+  title TEXT,
+  date DATE,
+  duration INT,
+  course_id INT REFERENCES courses(course_id)
+);
 
--- Вставляем специальность
-INSERT INTO Specialties (name, department_id) VALUES ('Прикладная информатика', 1);
+-- Материалы (для последующей индексации в ElasticSearch)
+CREATE TABLE materials (
+  material_id SERIAL PRIMARY KEY,
+  title TEXT,
+  tags TEXT,
+  class_id INT REFERENCES classes(class_id)
+);
 
--- Вставляем группу БСБО-03-22
-INSERT INTO Groups (name, specialty_id) VALUES ('БСБО-03-22', 1);
+-- Посещаемость
+CREATE TABLE attendances (
+  student_id INT REFERENCES students(student_id),
+  class_id INT REFERENCES classes(class_id),
+  presence BOOLEAN,
+  PRIMARY KEY (student_id, class_id)
+);
 
--- Вставляем обязательных студентов для группы БСБО-03-22
-INSERT INTO Students (full_name, group_id) VALUES
-  ('Мартынова Лия', 1),
-  ('Осипов Илья', 1),
-  ('Ершов Александр', 1),
-  ('Рамазанов Максим', 1);
+-------------------------------
+-- Заполнение данными
 
--- Вставляем курсы
-INSERT INTO Courses (title, description) VALUES
-  ('Основы программирования', 'Введение в основы программирования и логики.'),
-  ('Высшая математика', 'Курс включает анализ, алгебру, геометрию и прочее.');
+-- 10 Университетов
+INSERT INTO universities (name) VALUES
+('Университет A'),
+('Университет B'),
+('Университет C'),
+('Университет D'),
+('Университет E'),
+('Университет F'),
+('Университет G'),
+('Университет H'),
+('Университет I'),
+('Университет J');
 
--- Вставляем учебный план для группы БСБО-03-22 на 2025 год, 1 семестр
-INSERT INTO Curriculum (group_id, course_id, year, semester, planned_hours) VALUES
-  (1, 1, 2025, 1, 40),
-  (1, 2, 2025, 1, 30);
+-- 10 Институтов (связанные с первыми университетами)
+INSERT INTO institutes (name, university_id) VALUES
+('Институт информационных технологий', 1),
+('Институт экономики', 1),
+('Институт права', 2),
+('Институт управления', 2),
+('Институт математики', 3),
+('Институт физики', 3),
+('Институт химии', 4),
+('Институт биологии', 4),
+('Институт лингвистики', 5),
+('Институт социологии', 5);
 
--- Вставляем лекции
-INSERT INTO Lectures (course_id, topic, lecture_date, duration_hours) VALUES
-  (1, 'Введение. Обзор курса', '2025-02-10', 2),
-  (1, 'Основы синтаксиса и семантики', '2025-02-17', 2),
-  (2, 'Лекция по теме: Производные', '2025-03-05', 2),
-  (2, 'Лекция по теме: Интегралы', '2025-03-12', 2);
+-- 10 Кафедр (departments), привязанных к институтам
+INSERT INTO departments (name, head, phone, institute_id) VALUES
+('Кафедра программирования', 'Иванов И.И.', '+7-111-111-1111', 1),
+('Кафедра информационных систем', 'Петров П.П.', '+7-111-111-1112', 1),
+('Кафедра менеджмента', 'Сидоров С.С.', '+7-111-111-1113', 2),
+('Кафедра финансов', 'Кузнецов К.К.', '+7-111-111-1114', 2),
+('Кафедра теоретической математики', 'Андреев А.А.', '+7-111-111-1115', 3),
+('Кафедра прикладной математики', 'Борисов Б.Б.', '+7-111-111-1116', 3),
+('Кафедра общей физики', 'Васильев В.В.', '+7-111-111-1117', 4),
+('Кафедра экспериментальной физики', 'Григорьев Г.Г.', '+7-111-111-1118', 4),
+('Кафедра химии', 'Дмитриев Д.Д.', '+7-111-111-1119', 5),
+('Кафедра биологии', 'Егоров Е.Е.', '+7-111-111-1120', 5);
 
--- Вставляем записи посещаемости
-INSERT INTO Attendance (student_id, lecture_id, attended) VALUES
-  (1, 1, TRUE),
-  (2, 1, FALSE),
-  (3, 1, TRUE),
-  (4, 1, FALSE),
-  (1, 2, TRUE),
-  (2, 2, TRUE),
-  (3, 2, FALSE),
-  (4, 2, TRUE),
-  (1, 3, FALSE),
-  (2, 3, TRUE),
-  (3, 3, TRUE),
-  (4, 3, FALSE),
-  (1, 4, TRUE),
-  (2, 4, TRUE),
-  (3, 4, TRUE),
-  (4, 4, TRUE);
+-- 10 Специальностей
+INSERT INTO specialties (name, code, dept_id) VALUES
+('Компьютерные науки', '09.03.01', 1),
+('Программная инженерия', '09.03.02', 2),
+('Экономика', '38.05.01', 3),
+('Менеджмент', '38.05.02', 4),
+('Прикладная математика', '01.02.01', 5),
+('Чистая математика', '01.02.02', 6),
+('Фундаментальная физика', '04.05.01', 7),
+('Прикладная физика', '04.05.02', 8),
+('Химическая технология', '10.03.01', 9),
+('Биоинженерия', '10.03.02', 10);
+
+-- 10 Курсов
+INSERT INTO courses (title, description) VALUES
+('Введение в программирование', 'Основы алгоритмов и структур данных.'),
+('ООП', 'Концепции объектно-ориентированного программирования.'),
+('Базы данных', 'Реляционные и нереляционные системы хранения данных.'),
+('Экономическая теория', 'Основы микро- и макроэкономики.'),
+('Менеджмент проектов', 'Управление современными ИТ-проектами.'),
+('Дискретная математика', 'Логика, множества и графы.'),
+('Физика для инженеров', 'Основы классической физики.'),
+('Органическая химия', 'Структура и реактивность органических соединений.'),
+('Биология клетки', 'Структура и функции клетки.'),
+('Статистика', 'Методы анализа данных и теории вероятностей.');
+
+-- 10 Семестров (каждый привязан к специальности и курсу)
+INSERT INTO semesters (title, year, spec_id, course_id) VALUES
+('Осенний 2023', 2023, 1, 1),
+('Весенний 2024', 2024, 2, 2),
+('Осенний 2023', 2023, 3, 3),
+('Весенний 2024', 2024, 4, 4),
+('Осенний 2023', 2023, 5, 5),
+('Весенний 2024', 2024, 6, 6),
+('Осенний 2023', 2023, 7, 7),
+('Весенний 2024', 2024, 8, 8),
+('Осенний 2023', 2023, 9, 9),
+('Весенний 2024', 2024, 10, 10);
+
+-- 10 Преподавателей
+INSERT INTO professors (full_name, rank, dept_id, course_id) VALUES
+('Сергеев Сергей', 'доцент', 1, 1),
+('Михайлова Ольга', 'профессор', 2, 2),
+('Владимиров Иван', 'ассистент', 3, 3),
+('Козлова Елена', 'доцент', 4, 4),
+('Смирнов Николай', 'профессор', 5, 5),
+('Федорова Марина', 'доцент', 6, 6),
+('Павлов Александр', 'профессор', 7, 7),
+('Гордеева Наталья', 'доцент', 8, 8),
+('Орлова Виктория', 'ассистент', 9, 9),
+('Иванов Дмитрий', 'доцент', 10, 10);
+
+-- 10 Групп (где первая – БСБО-03-22)
+INSERT INTO groups (name, year, spec_id) VALUES
+('БСБО-03-22', 2022, 1),
+('БСБО-04-22', 2022, 2),
+('БСБО-05-22', 2022, 3),
+('БСБО-06-22', 2022, 4),
+('БСБО-07-22', 2022, 5),
+('БСБО-08-22', 2022, 6),
+('БСБО-09-22', 2022, 7),
+('БСБО-10-22', 2022, 8),
+('БСБО-11-22', 2022, 9),
+('БСБО-12-22', 2022, 10);
+
+-- 10 Студентов (обратите внимание: первые 3 студента – из группы БСБО-03-22)
+INSERT INTO students (full_name, code, group_id) VALUES
+('Мартынова Лия', 'Ст-2022-001', 1),
+('Осипов Илья', 'Ст-2022-002', 1),
+('Ершов Александр', 'Ст-2022-003', 1),
+('Иванов Сергей', 'Ст-2022-004', 2),
+('Петрова Анна', 'Ст-2022-005', 2),
+('Сидоров Максим', 'Ст-2022-006', 3),
+('Кузнецова Ольга', 'Ст-2022-007', 3),
+('Новиков Роман', 'Ст-2022-008', 4),
+('Фролова Светлана', 'Ст-2022-009', 5),
+('Смирнова Елена', 'Ст-2022-010', 6);
+
+-- 10 Занятий
+INSERT INTO classes (type, title, date, duration, course_id) VALUES
+('Лекция', 'Введение в программирование', '2023-09-01', 90, 1),
+('Семинар', 'ООП – практика', '2023-09-05', 120, 2),
+('Лекция', 'Основы баз данных', '2023-09-10', 90, 3),
+('Лабораторная', 'Экономическая теория – задачи', '2023-09-15', 120, 4),
+('Лекция', 'Введение в менеджмент', '2023-09-20', 90, 5),
+('Семинар', 'Практика по дискретной математике', '2023-09-25', 120, 6),
+('Лекция', 'Основы физики', '2023-10-01', 90, 7),
+('Лекция', 'Органическая химия – введение', '2023-10-05', 90, 8),
+('Семинар', 'Биология клетки – структура', '2023-10-10', 120, 9),
+('Лекция', 'Статистика: основы', '2023-10-15', 90, 10);
+
+-- 10 Материалов (каждый связывается с занятием по class_id)
+INSERT INTO materials (title, tags, class_id) VALUES
+('Слайды лекции 1', 'Материалы к введению в программирование', 1),
+('Конспект семинара 2', 'Практические примеры по ООП', 2),
+('Методические указания 3', 'Введение в БД и SQL', 3),
+('Лабораторная работа 4', 'Задачи по экономической теории', 4),
+('Презентация 5', 'Основы менеджмента проектов', 5),
+('Конспект семинара 6', 'Решение задач по дискретной математике', 6),
+('Слайды лекции 7', 'Физика для инженеров: основы', 7),
+('Презентация 8', 'Органическая химия: вступление', 8),
+('Методические указания 9', 'Ключевые понятия биологии клетки', 9),
+('Лабораторная работа 10', 'Практическое задание по статистике', 10);
+
+-- 10 Записей о посещаемости
+INSERT INTO attendances (student_id, class_id, presence) VALUES
+(1, 1, true),
+(2, 1, true),
+(3, 1, false),
+(1, 2, true),
+(4, 2, false),
+(5, 3, true),
+(6, 3, true),
+(7, 4, false),
+(8, 5, true),
+(9, 6, true);
