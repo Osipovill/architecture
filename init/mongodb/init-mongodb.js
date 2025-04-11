@@ -1,39 +1,74 @@
-/* 
-  init-mongodb.js
-  Инициализация базы данных "university" для MongoDB с коллекцией courses
-*/
-
 db = db.getSiblingDB('university');
+// Очищаем коллекцию, если она существует.
+db.universities.drop();
 
-db.courses.insertMany([
+// Вставляем 10 документов, где для университетов A–E заданы институты согласно данным из PostgreSQL.
+db.universities.insertMany([
   {
-    course_id: 1,
-    title: "Основы программирования",
-    department: "Кафедра Информатики",
-    tech_requirements: "Компьютерный класс с 20 рабочими станциями",
-    program: [
-      { module: "Введение", topics: ["История вычислительной техники", "Обзор языков программирования"] },
-      { module: "Базовые конструкции", topics: ["Переменные", "Условные операторы", "Циклы"] }
-    ],
-    semester_plan: [
-      { week: 1, topic: "Введение. Обзор курса", hours: 2 },
-      { week: 2, topic: "Основы синтаксиса", hours: 2 }
-    ],
-    tags: ["базовый курс", "программирование"]
+    university_id: 1,
+    name: "Университет A",
+    institutes: [
+      { institute_id: 1, name: "Институт информационных технологий" },
+      { institute_id: 2, name: "Институт экономики" }
+    ]
   },
   {
-    course_id: 2,
-    title: "Высшая математика",
-    department: "Кафедра Информатики",
-    tech_requirements: "Аудитория с проекторами, доской и компьютерными средствами",
-    program: [
-      { module: "Анализ", topics: ["Пределы", "Предел функции"] },
-      { module: "Алгебра", topics: ["Матрицы", "Векторы"] }
-    ],
-    semester_plan: [
-      { week: 1, topic: "Лекция по теме: Производные", hours: 2 },
-      { week: 2, topic: "Лекция по теме: Интегралы", hours: 2 }
-    ],
-    tags: ["математика", "университетский курс"]
+    university_id: 2,
+    name: "Университет B",
+    institutes: [
+      { institute_id: 3, name: "Институт права" },
+      { institute_id: 4, name: "Институт управления" }
+    ]
+  },
+  {
+    university_id: 3,
+    name: "Университет C",
+    institutes: [
+      { institute_id: 5, name: "Институт математики" },
+      { institute_id: 6, name: "Институт физики" }
+    ]
+  },
+  {
+    university_id: 4,
+    name: "Университет D",
+    institutes: [
+      { institute_id: 7, name: "Институт химии" },
+      { institute_id: 8, name: "Институт биологии" }
+    ]
+  },
+  {
+    university_id: 5,
+    name: "Университет E",
+    institutes: [
+      { institute_id: 9, name: "Институт лингвистики" },
+      { institute_id: 10, name: "Институт социологии" }
+    ]
+  },
+  {
+    university_id: 6,
+    name: "Университет F",
+    institutes: []
+  },
+  {
+    university_id: 7,
+    name: "Университет G",
+    institutes: []
+  },
+  {
+    university_id: 8,
+    name: "Университет H",
+    institutes: []
+  },
+  {
+    university_id: 9,
+    name: "Университет I",
+    institutes: []
+  },
+  {
+    university_id: 10,
+    name: "Университет J",
+    institutes: []
   }
 ]);
+
+print("Инициализация MongoDB завершена. Количество университетов: " + db.universities.countDocuments());
