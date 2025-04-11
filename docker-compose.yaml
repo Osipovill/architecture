@@ -10,16 +10,11 @@ services:
     volumes:
       - redis_data:/data
       - ./logs/redis:/var/log/redis
-    command: >
-      sh -c "
-      mkdir -p /var/log/redis &&
-      chown redis:redis /var/log/redis &&
-      redis-server 
-      --loglevel warning 
-      --logfile /var/log/redis/redis.log 
-      --save 60 1 
-      --appendonly yes
-      "
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   mongodb:
     image: mongo:7.0
@@ -105,12 +100,22 @@ services:
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
       - ./logs/elasticsearch:/usr/share/elasticsearch/logs
-      - ./init/elasticsearch:/usr/share/elasticsearch/config/scripts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
       interval: 30s
       timeout: 20s
       retries: 5
+
+  init-es:
+    image: alpine:3.17
+    container_name: init-es
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./init/elasticsearch:/init
+    entrypoint: /bin/sh
+    command: [ "-c", "apk add --no-cache curl && chmod +x /init/init-es.sh && sleep 3 && sh /init/init-es.sh" ]
 
   postgres:
     image: postgres:16-alpine

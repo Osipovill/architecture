@@ -1,9 +1,4 @@
 #!/bin/bash
-# Запускаем elasticsearch стандартным скриптом (в фоне)
-# (используем оригинальный entrypoint для старта ES)
-/usr/local/bin/docker-entrypoint.sh eswrapper &
-# Ждем, пока ES станет доступен
-sleep 30
 # Создаем индекс "materials" с заданным mapping для полей
 curl -X PUT "http://elasticsearch:9200/materials" \
   -H 'Content-Type: application/json' -d '{
@@ -108,5 +103,3 @@ curl -X POST "http://elasticsearch:9200/materials/_doc/10" \
 }' && echo ""
 
 echo "ElasticSearch индекс 'materials' создан, и все материалы успешно загружены."
-# Делаем простой запрос для подтверждения работы, можно использовать tail -f логов, чтобы контейнер не завершился
-tail -f /usr/share/elasticsearch/logs/elasticsearch.log
