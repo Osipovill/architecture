@@ -11,16 +11,15 @@ services:
       - redis_data:/data
       - ./logs/redis:/var/log/redis
     command: >
-      redis-server
-      --loglevel warning
-      --logfile /var/log/redis/redis.log
-      --save 60 1
+      sh -c "
+      mkdir -p /var/log/redis &&
+      chown redis:redis /var/log/redis &&
+      redis-server 
+      --loglevel warning 
+      --logfile /var/log/redis/redis.log 
+      --save 60 1 
       --appendonly yes
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      "
 
   mongodb:
     image: mongo:7.0

@@ -1,7 +1,10 @@
-# Используем официальный образ Redis
 FROM redis:7.0
 
-# Копируем скрипт инициализации (если он нужен)
+# Создаем директорию для логов и устанавливаем права
+RUN mkdir -p /var/log/redis && \
+    chown redis:redis /var/log/redis
+
+# Копируем скрипт инициализации
 COPY init-redis.sh /docker-entrypoint-initdb.d/
 
 # Делаем скрипт исполняемым
