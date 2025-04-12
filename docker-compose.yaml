@@ -35,6 +35,7 @@ services:
       - mongod
       - --auth
       - --bind_ip_all
+      - --config=/etc/mongod.conf
     healthcheck:
       test: |
         mongosh --quiet --eval '
