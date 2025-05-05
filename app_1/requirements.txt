@@ -3,6 +3,7 @@ fastapi
 uvicorn[standard]
 httpx
 PyJWT
+aioredis
 pydantic
 pydantic-settings
 asyncpg
