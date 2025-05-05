@@ -13,7 +13,7 @@ curl -X PUT "http://elasticsearch:9200/materials" \
 }' && echo ""
 
 # Материал 1: Введение в программирование (Лекция)
-curl -X POST "http://elasticsearch:9200/materials/_doc/1" \
+curl -X POST "http:/elasticsearch:9200/materials/_doc/1" \
   -H 'Content-Type: application/json' -d '{
     "material_id": 1,
     "class_id": 1,

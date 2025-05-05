@@ -30,10 +30,12 @@ services:
       - mongodb_data:/data/db
       - ./logs/mongodb:/var/log/mongodb
       - ./init/mongodb:/docker-entrypoint-initdb.d
+      - ./config/mongod.conf:/etc/mongod.conf
     command: 
       - mongod
       - --auth
       - --bind_ip_all
+      - --config=/etc/mongod.conf
     healthcheck:
       test: |
         mongosh --quiet --eval '
@@ -43,6 +45,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 3
+    
 
   mongo-init:
     image: mongo:7.0
