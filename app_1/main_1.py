@@ -1,7 +1,9 @@
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
+
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
 import asyncpg
 from elasticsearch import AsyncElasticsearch
 import aioredis
@@ -23,6 +25,20 @@ class Settings(BaseSettings):
         extra = "ignore"  
 
 settings = Settings()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    app.state.db  = await asyncpg.create_pool(dsn=settings.postgres_dsn)
+    app.state.es    = AsyncElasticsearch([str(settings.es_host)])
+    app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
+    yield
+    # shutdown
+    await app.state.db.close()
+    await app.state.es.close()
+    app.state.redis.close()
+    await app.state.redis.wait_closed()
+
 # ----------------- Pydantic Models -----------------
 class StudentReport(BaseModel):
     student_id: int
@@ -40,24 +56,7 @@ class ReportResponse(BaseModel):
     timestamp: datetime
 
 # ----------------- INITIALIZE SERVICES -----------------
-app = FastAPI(title="Lab1 Service")
-
-@app.on_event("startup")
-async def startup():
-    # Подключение к PostgreSQL
-    app.state.db    = await asyncpg.create_pool(dsn=settings.postgres_dsn)
-    # Elasticsearch
-    app.state.es    = AsyncElasticsearch([str(settings.es_host)])
-    # Redis (asyncio)
-    # from_url вернёт клиент Redis, готовый к использованию по asyncio
-    app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
-
-@app.on_event("shutdown")
-async def shutdown():
-    await app.state.db.close()
-    await app.state.es.close()
-    app.state.redis.close()
-    await app.state.redis.wait_closed()
+app = FastAPI(title="Lab1 Service", lifespan=lifespan)
 
 # ----------------- BUSINESS LOGIC -----------------
 async def fetch_lecture_ids(es, term: str, start: str, end: str) -> list[int]:
@@ -160,3 +159,11 @@ async def generate_report(
         timestamp=datetime.utcnow()
     )
     return response
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "app_1.main_1:app",
+        host="127.0.0.1",
+        port=8001,
+        workers=1
+    )
