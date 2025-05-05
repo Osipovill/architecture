@@ -154,6 +154,21 @@ services:
       timeout: 10s
       retries: 3
 
+  api_gateway:
+    build:
+      context: ./app_gateway
+      dockerfile: Dockerfile
+    container_name: api_gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      APP1_URL: ${APP1_URL}
+      TOKEN_EXPIRE_MINUTES: ${TOKEN_EXPIRE_MINUTES}
+      API_USERS: '${API_USERS}'
+
+
 volumes:
   redis_data:
   mongodb_data:

@@ -1,3 +1,4 @@
+import json
 import os
 
 import uvicorn
@@ -15,20 +16,18 @@ import httpx
 class Settings(BaseSettings):
     JWT_SECRET: str = os.getenv('JWT_SECRET', 'super_s3cr3t_key')
     APP1_URL: str = os.getenv('APP1_URL', 'http://127.0.0.1:8001')
-    TOKEN_EXPIRE_MINUTES: int = int(os.getenv('TOKEN_EXPIRE_MINUTES', 60))
+    TOKEN_EXPIRE_MINUTES: int = int(os.getenv('TOKEN_EXPIRE_MINUTES') or 60)
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+api_users = json.loads(os.getenv('API_USERS'))
+
 settings = Settings()
 security = HTTPBearer()
 app = FastAPI(title="API Gateway")
 
-db_users = {
-    "admin": "admin",
-    "app_1": "app_1"
-}
 
 class UserIn(BaseModel):
     username: str
@@ -42,13 +41,11 @@ class VerifyResponse(BaseModel):
     valid: bool
     username: str
 
-# JWT utilities
 def create_jwt_token(username: str) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.TOKEN_EXPIRE_MINUTES)
     to_encode = {"sub": username, "exp": expire}
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm="HS256")
 
-# Dependency to verify JWT
 def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     try:
         payload = jwt.decode(credentials.credentials, settings.JWT_SECRET, algorithms=["HS256"])
@@ -56,18 +53,11 @@ def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(security)) ->
     except jwt.PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
 
-# User management endpoints
-@app.post("/api/users", status_code=status.HTTP_201_CREATED)
-async def create_user(user: UserIn):
-    if user.username in db_users:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
-    db_users[user.username] = user.password
-    return {"msg": "User created successfully", "username": user.username}
 
+# ---TOKENS ENDPOINTS---
 @app.post("/api/token", response_model=TokenResponse)
 async def login_for_token(user: UserIn):
-    # Authenticate user
-    pwd = db_users.get(user.username)
+    pwd = api_users.get(user.username)
     if not pwd or pwd != user.password:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -77,12 +67,13 @@ async def login_for_token(user: UserIn):
     token = create_jwt_token(user.username)
     return {"access_token": token}
 
-# Verify token endpoint
+
 @app.get("/api/verify", response_model=VerifyResponse)
 async def verify_token(user=Depends(verify_jwt)):
     return {"valid": True, "username": user.get("sub")}
 
-# Proxy endpoint
+
+# ---PROXY ENDPOINTS---
 @app.get("/api/report")
 async def proxy_report(
     term: str,
@@ -110,6 +101,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "app_gateway.main_gateway:app",
         host="127.0.0.1",
-        port=8000,
+        port=80,
         workers=1
     )
