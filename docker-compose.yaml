@@ -188,6 +188,15 @@ services:
       interval: 20s
       timeout: 10s
       retries: 3
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      APP1_URL: ${APP1_URL}
+      TOKEN_EXPIRE_MINUTES: ${TOKEN_EXPIRE_MINUTES}
+      APP1_TOKEN: ${APP1_TOKEN}
+      API_USERS: '${API_USERS}'
+      POSTGRES_DSN: ${POSTGRES_DSN}
+      ES_HOST: ${ES_HOST}
+      REDIS_DSN: ${REDIS_DSN}
 
 
 volumes:
