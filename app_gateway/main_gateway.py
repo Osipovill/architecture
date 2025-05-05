@@ -14,9 +14,9 @@ import httpx
 
 # Settings
 class Settings(BaseSettings):
-    JWT_SECRET: str = os.getenv('JWT_SECRET', 'super_s3cr3t_key')
-    APP1_URL: str = os.getenv('APP1_URL', 'http://127.0.0.1:8001')
-    TOKEN_EXPIRE_MINUTES: int = int(os.getenv('TOKEN_EXPIRE_MINUTES') or 60)
+    JWT_SECRET: str 
+    APP1_URL: str 
+    TOKEN_EXPIRE_MINUTES: int
 
     class Config:
         env_file = ".env"

@@ -5,16 +5,24 @@ from pydantic import BaseModel
 import asyncpg
 from elasticsearch import AsyncElasticsearch
 import aioredis
+from pydantic import BaseModel, AnyHttpUrl, Field
+from pydantic_settings import BaseSettings
 
 # ----------------- CONFIGURATION -----------------
 # Используем имена сервисов из docker-compose
-DB_DSN = os.getenv(
-    "POSTGRES_DSN",
-    "postgresql://admin:P@ssw0rd@postgres:5432/university"
-)
-ES_HOST = os.getenv("ES_HOST", "http://elasticsearch:9200")
-REDIS_DSN = os.getenv("REDIS_DSN", "redis://redis:6379/0")
 
+class Settings(BaseSettings):
+    postgres_dsn: str = Field(..., env="POSTGRES_DSN")
+    es_host: AnyHttpUrl = Field(..., env="ES_HOST")
+    redis_dsn: str     = Field(..., env="REDIS_DSN")
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        # разрешить игнорировать любые доп. ключи из .env
+        extra = "ignore"  
+
+settings = Settings()
 # ----------------- Pydantic Models -----------------
 class StudentReport(BaseModel):
     student_id: int
@@ -37,11 +45,12 @@ app = FastAPI(title="Lab1 Service")
 @app.on_event("startup")
 async def startup():
     # Подключение к PostgreSQL
-    app.state.db = await asyncpg.create_pool(dsn=DB_DSN)
-    # Подключение к Elasticsearch
-    app.state.es = AsyncElasticsearch([ES_HOST])
-    # Подключение к Redis
-    app.state.redis = await aioredis.create_redis_pool(REDIS_DSN)
+    app.state.db    = await asyncpg.create_pool(dsn=settings.postgres_dsn)
+    # Elasticsearch
+    app.state.es    = AsyncElasticsearch([str(settings.es_host)])
+    # Redis (asyncio)
+    # from_url вернёт клиент Redis, готовый к использованию по asyncio
+    app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
 
 @app.on_event("shutdown")
 async def shutdown():
