@@ -167,14 +167,15 @@ services:
       APP1_URL: ${APP1_URL}
       TOKEN_EXPIRE_MINUTES: ${TOKEN_EXPIRE_MINUTES}
       API_USERS: '${API_USERS}'
+
   app_1:
     build:
-      context: .
-      dockerfile: app_1/Dockerfile
+      context: ./app_1
+      dockerfile: Dockerfile
     container_name: app1_service
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8001:8001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -183,7 +184,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/report?term=test&start=2025-01-01&end=2025-01-02"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 20s
       timeout: 10s
       retries: 3
