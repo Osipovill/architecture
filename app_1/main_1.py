@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+import json
+from json import JSONEncoder
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
@@ -15,8 +16,44 @@ from pydantic import BaseModel, AnyHttpUrl, Field
 from pydantic_settings import BaseSettings
 import logging
 
-from pypika.terms import LiteralValue, ValueWrapper
+class CustomJSONEncoder(JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
+# Настройка расширенного логирования
+logger = logging.getLogger("lab1_service")
+if not logger.handlers:
+    log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_formatter)
+    logger.setLevel(logging.INFO)
+    logger.addHandler(console_handler)
+    logger.propagate = False
+
+# Утилиты для работы с кэшем
+CACHE_TTL = 3600  # время жизни кэша в секундах
+
+def generate_cache_key(prefix: str, *args) -> str:
+    """Генерация уникального ключа кэша из префикса и аргументов"""
+    key_parts = [prefix] + [str(arg) for arg in args]
+    key_string = ":".join(key_parts)
+    return key_string
+
+async def get_cached_data(redis, key: str):
+    """Получение данных из Redis кэша"""
+    data = await redis.get(key)
+    if data:
+        logger.info(f"Cache hit: {key}")
+        return json.loads(data)
+    logger.info(f"Cache miss: {key}")
+    return None
+
+async def set_cached_data(redis, key: str, data, ttl: int = CACHE_TTL):
+    """Сохранение данных в Redis кэш с указанным TTL"""
+    await redis.set(key, json.dumps(data, cls=CustomJSONEncoder), ex=ttl)
+    logger.info(f"Cached: {key}, TTL: {ttl}")
 
 # ----------------- CONFIGURATION -----------------
 # Используем имена сервисов из docker-compose
@@ -33,8 +70,6 @@ class Settings(BaseSettings):
         extra = "ignore"  
 
 settings = Settings()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("lab1_service")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -69,15 +104,26 @@ app = FastAPI(title="Lab1 Service", lifespan=lifespan)
 
 # ----------------- BUSINESS LOGIC -----------------
 async def fetch_lecture_ids(es, pool, term: str, start: str, end: str) -> set[int] | None:
-    # 1) полнотекстовый поиск в ES
-    query = {"query": {"match": {"content": term}}}
-    resp = await es.search(index="materials", body=query, size=1000)
-    all_ids = [int(hit["_source"]["class_id"]) for hit in resp["hits"]["hits"]]
-    if not all_ids:
-        return None
-
+    """Поиск лекций по термину в ES и фильтрация по датам в PostgreSQL"""
+    # Проверяем кэш для результатов поиска ES
+    es_cache_key = generate_cache_key("es_search", term)
+    cached_ids = await get_cached_data(app.state.redis, es_cache_key)
+    
+    if cached_ids is None:
+        # 1) полнотекстовый поиск в ES если нет в кэше
+        query = {"query": {"match": {"content": term}}}
+        resp = await es.search(index="materials", body=query, size=1000)
+        all_ids = [int(hit["_source"]["class_id"]) for hit in resp["hits"]["hits"]]
+        if not all_ids:
+            return None
+            
+        # Кэшируем результаты поиска
+        await set_cached_data(app.state.redis, es_cache_key, all_ids)
+    else:
+        all_ids = cached_ids
+        
     # 2) фильтрация по дате в Postgres
-    sch= Table('shedule')
+    sch = Table('shedule')
     q = (
         PypikaQuery
         .from_(sch)
@@ -90,7 +136,7 @@ async def fetch_lecture_ids(es, pool, term: str, start: str, end: str) -> set[in
     return {r['class_id'] for r in rows}
 
 async def fetch_attendance(pool, lecture_ids: list[int]) -> dict[int, tuple[int, int]]:
-    """Подсчет посещаемости студентов по найденным лекциям."""
+    """Подсчет статистики посещаемости по списку лекций"""
     a = Table('attendances')
     s = Table('shedule')
 
@@ -117,7 +163,7 @@ async def fetch_attendance(pool, lecture_ids: list[int]) -> dict[int, tuple[int,
 
 
 async def fetch_student_details(pool, student_ids: list[int]) -> dict[int, dict]:
-    """Получение полной информации о студентах из PostgreSQL."""
+    """Получение информации о студентах из базы данных"""
     s = Table('students')
     g = Table('groups')
     sp = Table('specialties')
@@ -153,11 +199,19 @@ async def fetch_student_details(pool, student_ids: list[int]) -> dict[int, dict]
 # ----------------- ROUTE -----------------
 @app.get("/report", response_model=ReportResponse)
 async def generate_report(
-    term: str = Query(..., description="Search term for lectures"),
-    start: str = Query(..., description="Start date YYYY-MM-DD"),
-    end: str = Query(..., description="End date YYYY-MM-DD")
+    term: str = Query("введение", description="Search term for lectures"),
+    start: str = Query("2023-09-01", description="Start date YYYY-MM-DD"),
+    end: str = Query("2023-10-16", description="End date YYYY-MM-DD")
 ):
+    """Генерация отчета о посещаемости лекций с заданными параметрами"""
     logger.info("Generating report for term='%s', period=%s to %s", term, start, end)
+    
+    # Проверяем кэш
+    cache_key = generate_cache_key("report", term, start, end)
+    cached_data = await get_cached_data(app.state.redis, cache_key)
+    if cached_data:
+        logger.info("Returning cached report data")
+        return ReportResponse(**cached_data)
 
     # 1. Поиск и фильтрация lecture_ids
     lecture_ids = await fetch_lecture_ids(app.state.es, app.state.db, term, start, end)
@@ -208,7 +262,11 @@ async def generate_report(
         total_lectures=len(lecture_ids),
         timestamp=datetime.utcnow()
     )
-    logger.info("Report generated: %d students, %d lectures", len(report_students), len(lecture_ids))
+    
+    # Сохраняем результат в кэш
+    await set_cached_data(app.state.redis, cache_key, response.model_dump())
+    
+    logger.info("Report generated and cached: %d students, %d lectures", len(report_students), len(lecture_ids))
     return response
 
 if __name__ == "__main__":

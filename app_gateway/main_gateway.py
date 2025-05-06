@@ -4,7 +4,7 @@ import os
 import uvicorn
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
@@ -76,9 +76,9 @@ async def verify_token(user=Depends(verify_jwt)):
 # ---PROXY ENDPOINTS---
 @app.get("/api/report")
 async def proxy_report(
-    term: str,
-    start: str,
-    end: str,
+    term: str = Query("введение"),
+    start: str = Query("2023-09-01"),
+    end: str = Query("2023-10-16"),
     # credentials: HTTPAuthorizationCredentials = Depends(security),
     # user=Depends(verify_jwt)
 ):
