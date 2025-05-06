@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI):
 # ----------------- Pydantic Models -----------------
 class StudentReport(BaseModel):
     student_id: int
+    code: str
     full_name: str
     group: str
     specialty: str
@@ -177,6 +178,7 @@ async def fetch_student_details(pool, student_ids: list[int]) -> dict[int, dict]
         .join(d).on(sp.dept_id == d.dept_id)
         .select(
             s.student_id,
+            s.code,
             s.full_name,
             g.name.as_('group_name'),
             sp.name.as_('specialty'),
@@ -189,6 +191,7 @@ async def fetch_student_details(pool, student_ids: list[int]) -> dict[int, dict]
     result = {}
     for r in rows:
         result[r["student_id"]] = {
+            "code":r["code"],
             "full_name": r["full_name"],
             "group": r["group_name"],
             "specialty": r["specialty"],
@@ -247,6 +250,7 @@ async def generate_report(
         report_students.append(
             StudentReport(
                 student_id=sid,
+                code=det.get("code", ""),
                 full_name=det.get("full_name", ""),
                 group=det.get("group", ""),
                 specialty=det.get("specialty", ""),
