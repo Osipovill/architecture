@@ -4,6 +4,7 @@ fastapi
 uvicorn[standard]
 httpx
 PyJWT
+pypika
 aioredis
 pydantic
 pydantic-settings
