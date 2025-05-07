@@ -4,109 +4,138 @@ MATCH (n) DETACH DELETE n;
 // 2) Создаём группы
 CREATE (g1:Group {code: 'БСБО-03-22'}),
        (g2:Group {code: 'БСБО-04-22'}),
-       (g3:Group {code: 'БСБО-05-22'});
+       (g3:Group {code: 'БСБО-05-22'}),
+       (g4:Group {code: 'БСБО-06-22'}),
+       (g5:Group {code: 'БСБО-07-22'}),
+       (g6:Group {code: 'БСБО-08-22'}),
+       (g7:Group {code: 'БСБО-09-22'}),
+       (g8:Group {code: 'БСБО-10-22'}),
+       (g9:Group {code: 'БСБО-11-22'}),
+       (g10:Group {code: 'БСБО-12-22'});
 
-// 3) Создаём 30 студентов
-UNWIND [
-  {id:1,  name:'Мартынова Лия',      group:'БСБО-03-22'},
-  {id:2,  name:'Осипов Илья',         group:'БСБО-03-22'},
-  {id:3,  name:'Ершов Александр',    group:'БСБО-03-22'},
-  {id:4,  name:'Студент 4',          group:'БСБО-03-22'},
-  {id:5,  name:'Студент 5',          group:'БСБО-03-22'},
-  {id:6,  name:'Студент 6',          group:'БСБО-03-22'},
-  {id:7,  name:'Студент 7',          group:'БСБО-03-22'},
-  {id:8,  name:'Студент 8',          group:'БСБО-03-22'},
-  {id:9,  name:'Студент 9',          group:'БСБО-03-22'},
-  {id:10, name:'Студент 10',         group:'БСБО-03-22'},
-  {id:11, name:'Студент 11',         group:'БСБО-04-22'},
-  {id:12, name:'Студент 12',         group:'БСБО-04-22'},
-  {id:13, name:'Студент 13',         group:'БСБО-04-22'},
-  {id:14, name:'Студент 14',         group:'БСБО-04-22'},
-  {id:15, name:'Студент 15',         group:'БСБО-04-22'},
-  {id:16, name:'Студент 16',         group:'БСБО-04-22'},
-  {id:17, name:'Студент 17',         group:'БСБО-04-22'},
-  {id:18, name:'Студент 18',         group:'БСБО-04-22'},
-  {id:19, name:'Студент 19',         group:'БСБО-04-22'},
-  {id:20, name:'Студент 20',         group:'БСБО-04-22'},
-  {id:21, name:'Студент 21',         group:'БСБО-05-22'},
-  {id:22, name:'Студент 22',         group:'БСБО-05-22'},
-  {id:23, name:'Студент 23',         group:'БСБО-05-22'},
-  {id:24, name:'Студент 24',         group:'БСБО-05-22'},
-  {id:25, name:'Студент 25',         group:'БСБО-05-22'},
-  {id:26, name:'Студент 26',         group:'БСБО-05-22'},
-  {id:27, name:'Студент 27',         group:'БСБО-05-22'},
-  {id:28, name:'Студент 28',         group:'БСБО-05-22'},
-  {id:29, name:'Студент 29',         group:'БСБО-05-22'},
-  {id:30, name:'Студент 30',         group:'БСБО-05-22'}
-] AS student
-CREATE (s:Student {id: student.id, name: student.name})
-WITH s, student
-MATCH (g:Group {code: student.group})
-CREATE (s)-[:BELONGS_TO]->(g);
+// 3) Создаём студентов и связываем с группами точно как в PostgreSQL
+MATCH (g:Group {code: 'БСБО-03-22'})
+CREATE (s1:Student {id: 1, name: 'Мартынова Лия'})-[:BELONGS_TO]->(g),
+       (s2:Student {id: 2, name: 'Осипов Илья'})-[:BELONGS_TO]->(g),
+       (s3:Student {id: 3, name: 'Ершов Александр'})-[:BELONGS_TO]->(g);
 
-// 4) Создаём расписание (Schedule) и связываем с группами
-// Для простоты: по 10 встреч на каждую группу, даты подряд
-UNWIND [
-  // для БСБО-03-22
-  {group:'БСБО-03-22', title:'Математика',                date:'2023-09-01'},
-  {group:'БСБО-03-22', title:'Физика',                    date:'2023-09-02'},
-  {group:'БСБО-03-22', title:'Информатика',               date:'2023-09-03'},
-  {group:'БСБО-03-22', title:'Алгебра',                    date:'2023-09-04'},
-  {group:'БСБО-03-22', title:'Геометрия',                  date:'2023-09-05'},
-  {group:'БСБО-03-22', title:'Дискретная математика',      date:'2023-09-06'},
-  {group:'БСБО-03-22', title:'Линейная алгебра',           date:'2023-09-07'},
-  {group:'БСБО-03-22', title:'Теория вероятностей',        date:'2023-09-08'},
-  {group:'БСБО-03-22', title:'Статистика',                 date:'2023-09-09'},
-  {group:'БСБО-03-22', title:'Математический анализ',      date:'2023-09-10'},
+MATCH (g:Group {code: 'БСБО-04-22'})
+CREATE (s4:Student {id: 4, name: 'Иванов Сергей'})-[:BELONGS_TO]->(g),
+       (s5:Student {id: 5, name: 'Петрова Анна'})-[:BELONGS_TO]->(g);
 
-  // для БСБО-04-22
-  {group:'БСБО-04-22', title:'История',                    date:'2023-09-11'},
-  {group:'БСБО-04-22', title:'География',                  date:'2023-09-12'},
-  {group:'БСБО-04-22', title:'Социология',                 date:'2023-09-13'},
-  {group:'БСБО-04-22', title:'Политология',                date:'2023-09-14'},
-  {group:'БСБО-04-22', title:'Экономика',                  date:'2023-09-15'},
-  {group:'БСБО-04-22', title:'Менеджмент',                 date:'2023-09-16'},
-  {group:'БСБО-04-22', title:'Юриспруденция',              date:'2023-09-17'},
-  {group:'БСБО-04-22', title:'Правоведение',               date:'2023-09-18'},
-  {group:'БСБО-04-22', title:'Этика',                      date:'2023-09-19'},
-  {group:'БСБО-04-22', title:'Философия',                  date:'2023-09-20'},
+MATCH (g:Group {code: 'БСБО-05-22'})
+CREATE (s6:Student {id: 6, name: 'Сидоров Максим'})-[:BELONGS_TO]->(g),
+       (s7:Student {id: 7, name: 'Кузнецова Ольга'})-[:BELONGS_TO]->(g);
 
-  // для БСБО-05-22
-  {group:'БСБО-05-22', title:'Химия',                      date:'2023-09-21'},
-  {group:'БСБО-05-22', title:'Биология',                   date:'2023-09-22'},
-  {group:'БСБО-05-22', title:'Геология',                   date:'2023-09-23'},
-  {group:'БСБО-05-22', title:'Экология',                   date:'2023-09-24'},
-  {group:'БСБО-05-22', title:'Астрономия',                 date:'2023-09-25'},
-  {group:'БСБО-05-22', title:'Метеорология',               date:'2023-09-26'},
-  {group:'БСБО-05-22', title:'Океанология',                date:'2023-09-27'},
-  {group:'БСБО-05-22', title:'Ботаника',                   date:'2023-09-28'},
-  {group:'БСБО-05-22', title:'Зоология',                   date:'2023-09-29'},
-  {group:'БСБО-05-22', title:'Эволюция',                   date:'2023-09-30'}
-] AS item
-MATCH (g:Group {code: item.group})
-CREATE (sch:Schedule {
-  title: item.title,
-  date: date(item.date),
-  duration: 90
-})
-CREATE (g)-[:HAS_SCHEDULE]->(sch);
+MATCH (g:Group {code: 'БСБО-06-22'})
+CREATE (s8:Student {id: 8, name: 'Новиков Роман'})-[:BELONGS_TO]->(g);
 
-// 5) Записываем посещаемость только присутствующих студентов
-UNWIND [
-  {studentId: 1, title: 'Математика',               date: '2023-09-01', presence: true},
-  {studentId: 2, title: 'Математика',               date: '2023-09-01', presence: true},
-  {studentId: 3, title: 'Математика',               date: '2023-09-01', presence: false},
-  {studentId: 1, title: 'Физика',                   date: '2023-09-02', presence: true},
-  {studentId: 4, title: 'Физика',                   date: '2023-09-02', presence: false},
-  {studentId: 5, title: 'Информатика',              date: '2023-09-03', presence: true},
-  {studentId: 6, title: 'Информатика',              date: '2023-09-03', presence: true},
-  {studentId: 7, title: 'Алгебра',                  date: '2023-09-04', presence: false},
-  {studentId: 8, title: 'Геометрия',                date: '2023-09-05', presence: true},
-  {studentId: 9, title: 'Дискретная математика',     date: '2023-09-06', presence: true}
-] AS a
-// Оставляем только записи с presence = true
-WITH a
-WHERE a.presence = true
-MATCH (s:Student {id: a.studentId})
-MATCH (sch:Schedule {title: a.title, date: date(a.date)})
+MATCH (g:Group {code: 'БСБО-07-22'})
+CREATE (s9:Student {id: 9, name: 'Фролова Светлана'})-[:BELONGS_TO]->(g);
+
+MATCH (g:Group {code: 'БСБО-08-22'})
+CREATE (s10:Student {id: 10, name: 'Смирнова Елена'})-[:BELONGS_TO]->(g);
+
+// 4) Создаём расписание точно как в PostgreSQL
+MATCH (g:Group {code: 'БСБО-03-22'})
+CREATE (sch1:Schedule {
+    title: 'Введение в программирование',
+    date: date('2023-09-01'),
+    duration: 90
+}),
+(g)-[:HAS_SCHEDULE]->(sch1);
+
+MATCH (g:Group {code: 'БСБО-04-22'})
+CREATE (sch2:Schedule {
+    title: 'ООП – практика',
+    date: date('2023-09-05'),
+    duration: 120
+}),
+(g)-[:HAS_SCHEDULE]->(sch2);
+
+MATCH (g:Group {code: 'БСБО-05-22'})
+CREATE (sch3:Schedule {
+    title: 'Основы баз данных',
+    date: date('2023-09-10'),
+    duration: 90
+}),
+(g)-[:HAS_SCHEDULE]->(sch3);
+
+MATCH (g:Group {code: 'БСБО-06-22'})
+CREATE (sch4:Schedule {
+    title: 'Экономическая теория – задачи',
+    date: date('2023-09-15'),
+    duration: 120
+}),
+(g)-[:HAS_SCHEDULE]->(sch4);
+
+MATCH (g:Group {code: 'БСБО-07-22'})
+CREATE (sch5:Schedule {
+    title: 'Введение в менеджмент',
+    date: date('2023-09-20'),
+    duration: 90
+}),
+(g)-[:HAS_SCHEDULE]->(sch5);
+
+MATCH (g:Group {code: 'БСБО-08-22'})
+CREATE (sch6:Schedule {
+    title: 'Практика по дискретной математике',
+    date: date('2023-09-25'),
+    duration: 120
+}),
+(g)-[:HAS_SCHEDULE]->(sch6);
+
+MATCH (g:Group {code: 'БСБО-09-22'})
+CREATE (sch7:Schedule {
+    title: 'Основы физики',
+    date: date('2023-10-01'),
+    duration: 90
+}),
+(g)-[:HAS_SCHEDULE]->(sch7);
+
+MATCH (g:Group {code: 'БСБО-10-22'})
+CREATE (sch8:Schedule {
+    title: 'Органическая химия – введение',
+    date: date('2023-10-05'),
+    duration: 90
+}),
+(g)-[:HAS_SCHEDULE]->(sch8);
+
+MATCH (g:Group {code: 'БСБО-11-22'})
+CREATE (sch9:Schedule {
+    title: 'Биология клетки – структура',
+    date: date('2023-10-10'),
+    duration: 120
+}),
+(g)-[:HAS_SCHEDULE]->(sch9);
+
+MATCH (g:Group {code: 'БСБО-12-22'})
+CREATE (sch10:Schedule {
+    title: 'Статистика: основы',
+    date: date('2023-10-15'),
+    duration: 90
+}),
+(g)-[:HAS_SCHEDULE]->(sch10);
+
+// 5) Создаём связи посещаемости точно как в PostgreSQL
+// Добавляем только записи где presence = TRUE
+MATCH (s:Student {id: 1}), (sch:Schedule {title: 'Введение в программирование', date: date('2023-09-01')})
+CREATE (s)-[:ATTENDED]->(sch);
+
+MATCH (s:Student {id: 2}), (sch:Schedule {title: 'Введение в программирование', date: date('2023-09-01')})
+CREATE (s)-[:ATTENDED]->(sch);
+
+MATCH (s:Student {id: 1}), (sch:Schedule {title: 'ООП – практика', date: date('2023-09-05')})
+CREATE (s)-[:ATTENDED]->(sch);
+
+MATCH (s:Student {id: 5}), (sch:Schedule {title: 'Основы баз данных', date: date('2023-09-10')})
+CREATE (s)-[:ATTENDED]->(sch);
+
+MATCH (s:Student {id: 6}), (sch:Schedule {title: 'Основы баз данных', date: date('2023-09-10')})
+CREATE (s)-[:ATTENDED]->(sch);
+
+MATCH (s:Student {id: 8}), (sch:Schedule {title: 'Введение в менеджмент', date: date('2023-09-20')})
+CREATE (s)-[:ATTENDED]->(sch);
+
+MATCH (s:Student {id: 9}), (sch:Schedule {title: 'Практика по дискретной математике', date: date('2023-09-25')})
 CREATE (s)-[:ATTENDED]->(sch);
