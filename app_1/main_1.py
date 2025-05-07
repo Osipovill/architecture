@@ -81,8 +81,7 @@ async def lifespan(app: FastAPI):
     # shutdown
     await app.state.db.close()
     await app.state.es.close()
-    app.state.redis.close()
-    await app.state.redis.wait_closed()
+    await app.state.redis.close()
 
 # ----------------- Pydantic Models -----------------
 class StudentReport(BaseModel):

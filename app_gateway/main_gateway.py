@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 
@@ -11,11 +13,14 @@ from pydantic_settings import BaseSettings
 
 import jwt
 import httpx
+from typing import Optional
+
 
 # Settings
 class Settings(BaseSettings):
     JWT_SECRET: str 
     APP1_URL: str 
+    APP2_URL: str
     TOKEN_EXPIRE_MINUTES: int
 
     class Config:
@@ -87,6 +92,35 @@ async def proxy_report(
             resp = await client.get(
                 f"{settings.APP1_URL}/report",
                 params={"term": term, "start": start, "end": end},
+                # headers={"Authorization": f"Bearer {credentials.credentials}"}
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+@app.get("/api/course-attendance/{course_title}")
+async def proxy_course_attendance(
+    course_title: str,
+    year: Optional[int] = Query(None, description="Academic year"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="Semester (1 or 2)"),
+    requirements: Optional[str] = Query(None)
+    # credentials: HTTPAuthorizationCredentials = Depends(security),
+    # user=Depends(verify_jwt)
+):
+    params = {k: v for k, v in {
+        "year": year,
+        "semester": semester,
+        "requirements": requirements
+    }.items() if v is not None}
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(
+                f"{settings.APP2_URL}/api/course-attendance/{course_title}",
+                params=params,
                 # headers={"Authorization": f"Bearer {credentials.credentials}"}
             )
         except httpx.RequestError as e:
