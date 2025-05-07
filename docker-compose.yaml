@@ -198,7 +198,7 @@ services:
     build:
       context: ./app_2
       dockerfile: Dockerfile
-    container_name: app1_service
+    container_name: app2_service
     restart: unless-stopped
     ports:
       - "8002:8002"
