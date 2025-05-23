@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
     mongo_client = AsyncIOMotorClient(settings.mongo_dsn, serverSelectionTimeoutMS=5000)
     try:
         await mongo_client.admin.command("ping")
-        logger.info("✅ MongoDB connected")
+        logger.info("MongoDB connected")
     except Exception as e:
         logger.error("❌ MongoDB connection error: %s", e)
         raise
