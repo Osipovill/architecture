@@ -2,66 +2,84 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List
+from contextlib import asynccontextmanager
+from typing import List
+from datetime import datetime
+from json import JSONEncoder
 
-import aioredis
-import asyncpg
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Path, Security, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from neo4j import AsyncGraphDatabase
-from pydantic import BaseModel, BaseSettings, Field
-from pypika import Query, Table
+from fastapi import FastAPI, HTTPException, Path
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings
+import asyncpg
+import aioredis
+from pypika import Query as PypikaQuery, Table
 
-# ─────────────────── settings ────────────────────
+class CustomJSONEncoder(JSONEncoder):
+    """Кастомный JSON энкодер для сериализации datetime объектов"""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+# ----------------- CONFIGURATION -----------------
 class Settings(BaseSettings):
+    """Настройки приложения из .env"""
     postgres_dsn: str = Field(..., env="POSTGRES_DSN")
     redis_dsn: str = Field(..., env="REDIS_DSN")
-    neo4j_uri: str = Field(..., env="NEO4J_URI")
-    neo4j_user: str = Field(..., env="NEO4J_USER")
-    neo4j_password: str = Field(..., env="NEO4J_PASSWORD")
-
-    jwt_secret: str = Field("change-me", env="JWT_SECRET")
-    jwt_algorithm: str = "HS256"
 
     class Config:
         env_file = ".env"
-
+        env_file_encoding = "utf-8"
+        extra = "ignore"
 
 settings = Settings()
 
-# ─────────────────── logging ─────────────────────
+# ----------------- LOGGING -----------------
 logger = logging.getLogger("lab3_service")
-logger.setLevel(logging.INFO)
 if not logger.handlers:
-    _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("%(asctime)s — %(levelname)s — %(message)s"))
-    logger.addHandler(_h)
-logger.propagate = False                                           
+    fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    h = logging.StreamHandler()
+    h.setFormatter(fmt)
+    logger.setLevel(logging.INFO)
+    logger.addHandler(h)
+    logger.propagate = False
 
-# ─────────────────── security (JWT) ──────────────
-bearer_scheme = HTTPBearer()
+# ----------------- CACHE -----------------
+CACHE_TTL = 3600  # секунды
 
+def generate_cache_key(prefix: str, *args) -> str:
+    parts = [prefix, *map(str, args)]
+    return ":".join(parts)
 
-def verify_token(
-    cred: HTTPAuthorizationCredentials = Security(bearer_scheme),
-) -> Dict[str, Any]:
-    try:
-        payload = jwt.decode(
-            cred.credentials, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
-        )
-        logger.debug("JWT decoded: %s", payload)                  
-        return payload
-    except JWTError:
-        logger.warning("Invalid JWT received")                    
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-        )
+async def get_cached_data(redis, key: str):
+    raw = await redis.get(key)
+    if raw:
+        logger.info(f"Cache hit: {key}")
+        return json.loads(raw)
+    logger.info(f"Cache miss: {key}")
+    return None
 
+async def set_cached_data(redis, key: str, data, ttl: int = CACHE_TTL):
+    await redis.set(key, json.dumps(data, cls=CustomJSONEncoder), ex=ttl)
+    logger.info(f"Cached: {key}, TTL={ttl}s")
 
-# ─────────────────── pydantic models ─────────────
+# ----------------- LIFESPAN -----------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Запуск сервиса Lab-3…")
+    app.state.db = await asyncpg.create_pool(dsn=settings.postgres_dsn)
+    app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
+    logger.info("Подключены Postgres и Redis")
+    yield
+    logger.info("Завершение работы сервиса Lab-3…")
+    await app.state.db.close()
+    await app.state.redis.close()
+    logger.info("Все соединения закрыты")
+
+app = FastAPI(title="Lab-3 Service", lifespan=lifespan)
+
+# ----------------- Pydantic Models -----------------
 class GroupHours(BaseModel):
     group_id: int
     group_name: str
@@ -72,58 +90,13 @@ class GroupHours(BaseModel):
     planned_hours: int
     attended_hours: int
 
-
-# ─────────────────── FastAPI app ─────────────────
-app = FastAPI(title="Lab-3 Service")
-
-CACHE_TTL = 3600  # 1 час
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    logger.info("Starting Lab-3 service …")
-    app.state.pg: asyncpg.Pool = await asyncpg.create_pool(settings.postgres_dsn)
-    app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
-    app.state.neo4j = AsyncGraphDatabase.driver(
-        settings.neo4j_uri,
-        auth=(settings.neo4j_user, settings.neo4j_password),
-    )
-    logger.info("Connected to Postgres / Redis / Neo4j")          
-
-
-@app.on_event("shutdown")
-async def on_shutdown() -> None:
-    logger.info("Shutting down …")
-    await app.state.pg.close()
-    await app.state.neo4j.close()
-    await app.state.redis.close()
-    logger.info("Connections closed")                             
-
-
-# ─────────────────── helpers ─────────────────────
-def _cache_key(group_id: int) -> str:
-    return f"group_hours:{group_id}"
-
-
-async def _get_cached(redis, key: str):
-    raw = await redis.get(key)
-    if raw:
-        logger.info("Cache hit: %s", key)
-        return json.loads(raw)
-    logger.info("Cache miss: %s", key)
-    return None
-
-
-async def _set_cached(redis, key: str, data):
-    await redis.set(key, json.dumps(data), ex=CACHE_TTL)
-    logger.info("Cached: %s (ttl=%ss)", key, CACHE_TTL)
-
-
-# ─────────────────── SQL parts ───────────────────
-async def _fetch_planned_hours(pool: asyncpg.pool.Pool, group_id: int):
-    """Возвращает planned_hours для каждой (course, student) пары"""
-    logger.info("Fetching *planned* hours for group_id=%s", group_id)   
-
+# ----------------- BUSINESS LOGIC -----------------
+async def fetch_planned_hours(pool, group_id: int) -> dict[tuple[int,int], dict]:
+    """
+    Получение запланированных часов (только лекции с tag='специальная')
+    для каждой пары (student_id, course_id)
+    """
+    logger.info(f"Fetching planned hours for group_id={group_id}")
     g, s, c, cl = (
         Table("groups"),
         Table("students"),
@@ -132,7 +105,8 @@ async def _fetch_planned_hours(pool: asyncpg.pool.Pool, group_id: int):
     )
 
     q = (
-        Query.from_(g)
+        PypikaQuery
+        .from_(g)
         .join(s).on(s.group_id == g.group_id)
         .join(c).on(c.spec_id == g.spec_id)
         .join(cl).on(cl.course_id == c.course_id)
@@ -143,90 +117,92 @@ async def _fetch_planned_hours(pool: asyncpg.pool.Pool, group_id: int):
             s.full_name.as_("student_name"),
             c.course_id,
             c.title.as_("course_title"),
-            (cl.duration * 2).as_("lecture_hours"),  # 1 лекция = 2 часа
+            cl.duration,
         )
         .where(g.group_id == group_id)
-        .where(cl.type == "lecture")
-        .where(cl.requirements.ilike("%special%"))
+        .where(cl.type == "Лекция")
+        .where(cl.tag == "специальная")
     )
 
     sql = f"""
         SELECT group_id, group_name, student_id, student_name,
-               course_id, course_title, SUM(lecture_hours) AS planned_hours
+               course_id, course_title,
+               SUM(duration / 60) AS planned_hours
         FROM ({q.get_sql()}) sub
-        GROUP BY group_id, group_name,
-                 student_id, student_name,
-                 course_id, course_title
+        GROUP BY group_id, group_name, student_id,
+                 student_name, course_id, course_title
     """
-    logger.debug("Planned-hours SQL:\n%s", sql)                   
-
+    logger.debug("Planned-hours SQL:\n%s", sql)
     rows = await pool.fetch(sql)
-    logger.info("Planned hours rows: %d", len(rows))              
+    logger.info(f"Planned rows: {len(rows)}")
     return {(r["student_id"], r["course_id"]): dict(r) for r in rows}
 
+async def fetch_attended_hours(pool, group_id: int) -> dict[tuple[int,int], int]:
+    """
+    Получение фактических часов посещения (только лекции с tag='специальная')
+    из таблицы attendances
+    """
+    logger.info(f"Fetching attended hours for group_id={group_id}")
+    sql = """
+        SELECT s.student_id, c.course_id, SUM(cl.duration / 60) AS attended_hours
+        FROM students s
+        JOIN attendances a ON a.student_id = s.student_id
+        JOIN shedule sch ON a.shedule_id = sch.shedule_id
+        JOIN classes cl ON sch.class_id = cl.class_id
+        JOIN courses c ON cl.course_id = c.course_id
+        WHERE s.group_id = $1
+          AND cl.type = 'Лекция'
+          AND cl.tag = 'специальная'
+          AND a.presence = TRUE
+        GROUP BY s.student_id, c.course_id
+    """
+    rows = await pool.fetch(sql, group_id)
+    logger.info(f"Attended rows: {len(rows)}")
+    return {(r["student_id"], r["course_id"]): r["attended_hours"] for r in rows}
 
-# ─────────────────── Cypher parts ────────────────
-ATTENDED_CYPHER = """
-MATCH (g:Group {group_id: $group_id})<-[:BELONGS_TO]-(st:Student)
-MATCH (st)-[:ATTENDED]->(sch:Schedule)-[:OF_CLASS]->(cl:Class {type:'lecture'})
-MATCH (cl)-[:OF_COURSE]->(co:Course)
-WHERE cl.requirements CONTAINS 'special'
-RETURN st.student_id AS student_id,
-       co.course_id  AS course_id,
-       COUNT(DISTINCT sch) * 2 AS attended_hours   // 1 лекция = 2 часа
-"""
-
-
-async def _fetch_attended_hours(driver, group_id: int):
-    logger.info("Fetching *attended* hours for group_id=%s", group_id)  
-    async with driver.session() as sess:
-        res = await sess.run(ATTENDED_CYPHER, group_id=group_id)
-        records = await res.data()
-    logger.info("Attended hours rows: %d", len(records))          
-    return {(r["student_id"], r["course_id"]): r["attended_hours"] for r in records}
-
-
-# ─────────────────── route ───────────────────────
+# ----------------- ROUTES -----------------
 @app.get(
     "/api/group-hours/{group_id}",
-    response_model=List[GroupHours],
-    dependencies=[Depends(verify_token)],
+    response_model=List[GroupHours]
 )
-async def group_hours(group_id: int = Path(..., ge=1, description="ID группы")):
-    """Отчёт по студентам группы: запланированные / фактические часы лекций"""
-    logger.info("Generate report for group_id=%s", group_id)      
+async def get_group_hours(
+    group_id: int = Path(..., ge=1, description="ID группы")
+):
+    """
+    Отчёт по студентам группы: запланированные и фактические часы лекций
+    """
+    logger.info(f"Generate report for group_id={group_id}")
 
-    # ── кэш ──
-    redis = app.state.redis
-    if cached := await _get_cached(redis, _cache_key(group_id)):
-        logger.info("Report served from cache")                   
+    # проверка кэша
+    cache_key = generate_cache_key("group_hours", group_id)
+    if cached := await get_cached_data(app.state.redis, cache_key):
+        logger.info("Report served from cache")
         return [GroupHours(**row) for row in cached]
 
-    # ── данные из БД ──
-    planned = await _fetch_planned_hours(app.state.pg, group_id)
+    # данные
+    planned = await fetch_planned_hours(app.state.db, group_id)
     if not planned:
-        logger.warning("Group %s not found or no classes", group_id)    
+        logger.warning(f"Group {group_id} not found or no classes")
         raise HTTPException(status_code=404, detail="Group not found or no classes")
 
-    attended = await _fetch_attended_hours(app.state.neo4j, group_id)
+    attended = await fetch_attended_hours(app.state.db, group_id)
 
-    # ── сшиваем ──
+    # объединение
     report: List[GroupHours] = []
-    for key, plan in planned.items():
-        report.append(GroupHours(**plan, attended_hours=attended.get(key, 0)))
+    for (stu_id, course_id), data in planned.items():
+        hours = attended.get((stu_id, course_id), 0)
+        report.append(GroupHours(**data, attended_hours=hours))
 
-    # ── кэшируем и отдаём ──
-    await _set_cached(redis, _cache_key(group_id), [r.model_dump() for r in report])
-
-    logger.info("Report generated, rows=%d", len(report))         
+    # кэшируем и возвращаем
+    await set_cached_data(app.state.redis, cache_key, [r.model_dump() for r in report])
+    logger.info(f"Report generated, rows={len(report)}")
     return report
 
-
-# ─────────────────── main ────────────────────────
+# ----------------- MAIN -----------------
 if __name__ == "__main__":
     uvicorn.run(
         "lab3_service.main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8003,
-        reload=False,
+        workers=1
     )

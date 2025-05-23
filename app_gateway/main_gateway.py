@@ -20,15 +20,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
-# ───────────────────── settings ─────────────────────
 class Settings(BaseSettings):
     JWT_SECRET: str
     TOKEN_EXPIRE_MINUTES: int
 
-    # downstream-service URLs
     APP1_URL: str
     APP2_URL: str
-    APP3_URL: str            # ← NEW
+    APP3_URL: str
 
     class Config:
         env_file = ".env"
@@ -41,28 +39,22 @@ api_users = json.loads(os.getenv("API_USERS", "{}"))
 security = HTTPBearer()
 app = FastAPI(title="API Gateway")
 
-# ──────────────────── models ────────────────────────
 class UserIn(BaseModel):
     username: str
     password: str
-
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-
 class VerifyResponse(BaseModel):
     valid: bool
     username: str
 
-
-# ──────────────────── helpers ───────────────────────
 def create_jwt_token(username: str) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.TOKEN_EXPIRE_MINUTES)
     to_encode = {"sub": username, "exp": expire}
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm="HS256")
-
 
 def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     try:
@@ -73,8 +65,6 @@ def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(security)) ->
             detail="Invalid authentication credentials",
         )
 
-
-# ──────────────────── token endpoints ──────────────
 @app.post("/api/token", response_model=TokenResponse)
 async def login_for_token(user: UserIn):
     if api_users.get(user.username) != user.password:
@@ -91,7 +81,6 @@ async def verify_token(user=Depends(verify_jwt)):
     return {"valid": True, "username": user.get("sub")}
 
 
-# ──────────────────── proxy: App-1 ──────────────────
 @app.get("/api/report")
 async def proxy_report(
     term: str = Query("введение"),
@@ -114,8 +103,6 @@ async def proxy_report(
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     return resp.json()
 
-
-# ──────────────────── proxy: App-2 ──────────────────
 @app.get("/api/course-attendance/{course_title}")
 async def proxy_course_attendance(
     course_title: str,
@@ -142,16 +129,12 @@ async def proxy_course_attendance(
     return resp.json()
 
 
-# ──────────────────── proxy: App-3 (NEW) ────────────
-@app.get("/api/group-hours/{group_id}")               # ← NEW
+@app.get("/api/group-hours/{group_id}")
 async def proxy_group_hours(
     group_id: int = Path(..., ge=1, description="ID группы"),
     # credentials: HTTPAuthorizationCredentials = Depends(security),
     # user=Depends(verify_jwt)
 ):
-    """
-    Проксирует запрос к Lab-3 Service (app_3) — отчёт по часам лекций.
-    """
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(
@@ -165,8 +148,6 @@ async def proxy_group_hours(
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     return resp.json()
 
-
-# ──────────────────── main ──────────────────────────
 if __name__ == "__main__":
     uvicorn.run(
         "app_gateway.main_gateway:app",
