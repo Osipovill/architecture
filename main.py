@@ -50,7 +50,7 @@ def generate_pg_data():
                 "Учебник, микроскоп"
             ])
             cls_date  = date(2023, 9, 1) + timedelta(days=random.randint(0, 120))
-            duration  = random.choice([60, 90, 120])
+            duration  = random.choice([120])
             tag       = random.choice(tags)
 
             cur.execute(
