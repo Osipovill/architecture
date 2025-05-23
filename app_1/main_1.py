@@ -244,9 +244,9 @@ async def generate_report(
     # Проверяем кэш
     cache_key = generate_cache_key("report", term, start, end)
     cached_data = await get_cached_data(app.state.redis, cache_key)
-    # if cached_data:
-    #     logger.info("Returning cached report data")
-    #     return ReportResponse(**cached_data)
+    if cached_data:
+        logger.info("Returning cached report data")
+        return ReportResponse(**cached_data)
 
     # 1. Поиск и фильтрация lecture_ids
     lecture_ids = await fetch_lecture_ids(app.state.es, app.state.db, term, start, end)
