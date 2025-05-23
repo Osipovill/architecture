@@ -48,7 +48,7 @@ if not logger.handlers:
     logger.propagate = False
 
 # ------------- CACHE UTILITIES -------------
-CACHE_TTL = 3600  # секунды
+CACHE_TTL = 60
 
 def generate_cache_key(prefix: str, *args) -> str:
     return ":".join([prefix, *map(str, args)])
@@ -108,7 +108,7 @@ async def fetch_planned_hours(pool, group_id: int) -> dict[tuple[int,int], dict]
     g, s, c, cl = Table("groups"), Table("students"), Table("courses"), Table("classes")
 
     # выражение для академических часов одной лекции
-    acad_hours = (cl.duration / 60) * 2
+    acad_hours = (cl.duration / 60)
 
     q = (
         PypikaQuery
@@ -208,7 +208,7 @@ async def get_group_hours(
             course_id      = data["course_id"],
             course_title   = data["course_title"],
             planned_hours  = data["planned_hours"],
-            attended_hours = attended.get((stu_id, crs_id), 0)
+            attended_hours = attended.get((stu_id, crs_id), 0) if attended.get((stu_id, crs_id), 0) <= data["planned_hours"] else data["planned_hours"]
         )
         if stu_id not in students_map:
             students_map[stu_id] = {
