@@ -253,7 +253,7 @@ def generate_for_first_group():
             title    = f"Лекция grp1, курс {course_id}, тема {j}"
             req      = "Проектор, ноутбук"
             cls_date = date(2023, 9, 1) + timedelta(days=random.randint(0, 90))
-            duration = random.choice([90, 120])
+            duration = random.choice([120])
             tag      = 'специальная'
             cur.execute(
                 """

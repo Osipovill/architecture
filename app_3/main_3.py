@@ -108,7 +108,7 @@ async def fetch_planned_hours(pool, group_id: int) -> dict[tuple[int,int], dict]
     g, s, c, cl = Table("groups"), Table("students"), Table("courses"), Table("classes")
 
     # выражение для академических часов одной лекции
-    acad_hours = (cl.duration / 60) * 2
+    acad_hours = (cl.duration / 60)
 
     q = (
         PypikaQuery
