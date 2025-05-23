@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # downstream-service URLs
     APP1_URL: str
     APP2_URL: str
-    APP3_URL: str            # ← NEW
+    # APP3_URL: str            
 
     class Config:
         env_file = ".env"
@@ -142,35 +142,35 @@ async def proxy_course_attendance(
     return resp.json()
 
 
-# ──────────────────── proxy: App-3 (NEW) ────────────
-@app.get("/api/group-hours/{group_id}")               # ← NEW
-async def proxy_group_hours(
-    group_id: int = Path(..., ge=1, description="ID группы"),
-    # credentials: HTTPAuthorizationCredentials = Depends(security),
-    # user=Depends(verify_jwt)
-):
-    """
-    Проксирует запрос к Lab-3 Service (app_3) — отчёт по часам лекций.
-    """
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(
-                f"{settings.APP3_URL}/api/group-hours/{group_id}",
-                # headers={"Authorization": f"Bearer {credentials.credentials}"}
-            )
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+# # ──────────────────── proxy: App-3 (NEW) ────────────
+# @app.get("/api/group-hours/{group_id}")               # ← NEW
+# async def proxy_group_hours(
+#     group_id: int = Path(..., ge=1, description="ID группы"),
+#     # credentials: HTTPAuthorizationCredentials = Depends(security),
+#     # user=Depends(verify_jwt)
+# ):
+#     """
+#     Проксирует запрос к Lab-3 Service (app_3) — отчёт по часам лекций.
+#     """
+#     async with httpx.AsyncClient() as client:
+#         try:
+#             resp = await client.get(
+#                 f"{settings.APP3_URL}/api/group-hours/{group_id}",
+#                 # headers={"Authorization": f"Bearer {credentials.credentials}"}
+#             )
+#         except httpx.RequestError as e:
+#             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
-    if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    return resp.json()
+#     if resp.status_code != 200:
+#         raise HTTPException(status_code=resp.status_code, detail=resp.text)
+#     return resp.json()
 
 
-# ──────────────────── main ──────────────────────────
-if __name__ == "__main__":
-    uvicorn.run(
-        "app_gateway.main_gateway:app",
-        host="127.0.0.1",
-        port=80,
-        workers=1,
-    )
+# # ──────────────────── main ──────────────────────────
+# if __name__ == "__main__":
+#     uvicorn.run(
+#         "app_gateway.main_gateway:app",
+#         host="127.0.0.1",
+#         port=80,
+#         workers=1,
+#     )

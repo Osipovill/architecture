@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import json
 from json import JSONEncoder
-
+from motor.motor_asyncio import AsyncIOMotorClient
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 import asyncpg
@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     postgres_dsn: str = Field(..., env="POSTGRES_DSN")
     es_host: AnyHttpUrl = Field(..., env="ES_HOST")
     redis_dsn: str     = Field(..., env="REDIS_DSN")
+    mongo_dsn: str     = Field(..., env="MONGO_DSN")
 
     class Config:
         env_file = ".env"
@@ -77,6 +78,9 @@ async def lifespan(app: FastAPI):
     app.state.db  = await asyncpg.create_pool(dsn=settings.postgres_dsn)
     app.state.es    = AsyncElasticsearch([str(settings.es_host)])
     app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
+    mongo_client = AsyncIOMotorClient(settings.mongo_dsn)
+    app.state.mongo = mongo_client.university  
+
     yield
     # shutdown
     await app.state.db.close()
@@ -162,41 +166,68 @@ async def fetch_attendance(pool, lecture_ids: list[int]) -> dict[int, tuple[int,
     return result
 
 
-async def fetch_student_details(pool, student_ids: list[int]) -> dict[int, dict]:
+async def fetch_student_details(pool, mongo, student_ids: list[int]) -> dict[int, dict]:
     """Получение информации о студентах из базы данных"""
     s = Table('students')
     g = Table('groups')
     sp = Table('specialties')
-    d = Table('departments')
 
     q = (
         PypikaQuery
         .from_(s)
         .join(g).on(s.group_id == g.group_id)
         .join(sp).on(g.spec_id == sp.spec_id)
-        .join(d).on(sp.dept_id == d.dept_id)
         .select(
             s.student_id,
             s.code,
             s.full_name,
             g.name.as_('group_name'),
             sp.name.as_('specialty'),
-            d.name.as_('department')
+            sp.dept_id.as_('dept_id')    
         )
         .where(s.student_id.isin(student_ids))
     )
     sql = q.get_sql()
     rows = await pool.fetch(sql)
-    result = {}
+    details = {}
+    dept_ids = set()
     for r in rows:
-        result[r["student_id"]] = {
-            "code":r["code"],
-            "full_name": r["full_name"],
-            "group": r["group_name"],
-            "specialty": r["specialty"],
-            "department": r["department"],
+        sid = r['student_id']
+        did = r['dept_id']
+        details[sid] = {
+            "code":       r["code"],
+            "full_name":  r["full_name"],
+            "group":      r["group_name"],
+            "specialty":  r["specialty"],
+            "dept_id":    did  
         }
-    return result
+        dept_ids.add(did)
+
+    if not dept_ids:
+        return {sid: {**v, "department": ""} for sid, v in details.items()}
+
+    # 2) Из MongoDB получаем названия кафедр по dept_id
+    pipeline = [
+        { "$unwind": "$institutes" },
+        { "$unwind": "$institutes.departments" },
+        { "$match": { "institutes.departments.department_id": { "$in": list(dept_ids) } } },
+        { "$project": {
+            "_id": 0,
+            "department_id": "$institutes.departments.department_id",
+            "department_name": "$institutes.departments.name"
+        } }
+    ]
+    cursor = mongo.universities.aggregate(pipeline)
+    docs = await cursor.to_list(length=None)
+
+    dept_map = { doc["department_id"]: doc["department_name"] for doc in docs }
+
+    # 3) Вкладываем department_name в детали и убираем dept_id
+    for sid, info in details.items():
+        info["department"] = dept_map.get(info["dept_id"], "")
+        del info["dept_id"]
+
+    return details
 
 # ----------------- ROUTE -----------------
 @app.get("/report", response_model=ReportResponse)
@@ -240,7 +271,7 @@ async def generate_report(
     logger.info(" Top 10 student_ids: %s", student_ids)
 
     # 5. Детали студентов
-    details = await fetch_student_details(app.state.db, student_ids)
+    details = await fetch_student_details(app.state.db, app.state.mongo, student_ids)
 
     # 6. Формирование отчёта
     report_students = []
