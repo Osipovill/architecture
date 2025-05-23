@@ -33,7 +33,7 @@ if not logger.handlers:
     logger.propagate = False
 
 
-CACHE_TTL = 3600
+CACHE_TTL = 60
 
 def generate_cache_key(prefix: str, *args) -> str:
     """Генерация уникального ключа кэша из префикса и аргументов"""

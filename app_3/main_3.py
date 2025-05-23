@@ -48,7 +48,7 @@ if not logger.handlers:
     logger.propagate = False
 
 # ------------- CACHE UTILITIES -------------
-CACHE_TTL = 3600  # секунды
+CACHE_TTL = 60
 
 def generate_cache_key(prefix: str, *args) -> str:
     return ":".join([prefix, *map(str, args)])
