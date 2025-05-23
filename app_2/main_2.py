@@ -97,6 +97,7 @@ app = FastAPI(title="App2 Service", lifespan=lifespan)
 class CourseReport(BaseModel):
     course_title: str
     class_title: str
+    tag: str
     type: str
     date: str
     duration: int
@@ -119,6 +120,7 @@ async def fetch_classes(pool, course_title, year, semester, requirements=None):
         .select(
             c.title.as_('course_title'),
             cl.title.as_('class_title'),
+            cl.tag,
             cl.type,
             cl.date,
             cl.duration,
@@ -205,6 +207,7 @@ async def get_course_attendance(
         results.append(CourseReport(
             course_title=class_info["course_title"],
             class_title=class_info["class_title"],
+            tag=class_info["tag"],
             type=class_info["type"],
             date=class_info["date"].strftime('%Y-%m-%d'),
             duration=class_info["duration"],
