@@ -143,6 +143,10 @@ async def proxy_group_hours(
         except httpx.RequestError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
 
 if __name__ == "__main__":
     uvicorn.run(

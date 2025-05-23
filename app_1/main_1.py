@@ -32,8 +32,8 @@ if not logger.handlers:
     logger.addHandler(console_handler)
     logger.propagate = False
 
-# Утилиты для работы с кэшем
-CACHE_TTL = 3600  # время жизни кэша в секундах
+
+CACHE_TTL = 3600
 
 def generate_cache_key(prefix: str, *args) -> str:
     """Генерация уникального ключа кэша из префикса и аргументов"""
@@ -56,7 +56,6 @@ async def set_cached_data(redis, key: str, data, ttl: int = CACHE_TTL):
     logger.info(f"Cached: {key}, TTL: {ttl}")
 
 # ----------------- CONFIGURATION -----------------
-# Используем имена сервисов из docker-compose
 
 class Settings(BaseSettings):
     postgres_dsn: str = Field(..., env="POSTGRES_DSN")
@@ -67,22 +66,25 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        # разрешить игнорировать любые доп. ключи из .env
         extra = "ignore"  
 
 settings = Settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
     app.state.db  = await asyncpg.create_pool(dsn=settings.postgres_dsn)
     app.state.es    = AsyncElasticsearch([str(settings.es_host)])
     app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
-    mongo_client = AsyncIOMotorClient(settings.mongo_dsn)
-    app.state.mongo = mongo_client.university  
+    mongo_client = AsyncIOMotorClient(settings.mongo_dsn, serverSelectionTimeoutMS=5000)
+    try:
+        await mongo_client.admin.command("ping")
+        logger.info("✅ MongoDB connected")
+    except Exception as e:
+        logger.error("❌ MongoDB connection error: %s", e)
+        raise
+    app.state.mongo = mongo_client[mongo_client.get_default_database().name]
 
     yield
-    # shutdown
     await app.state.db.close()
     await app.state.es.close()
     await app.state.redis.close()
