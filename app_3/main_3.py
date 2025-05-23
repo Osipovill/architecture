@@ -190,9 +190,9 @@ async def get_group_hours(
     cache_key = generate_cache_key("group_hours", group_id)
 
     # 1) Попробовать из кэша
-    if cached := await get_cached_data(app.state.redis, cache_key):
-        logger.info("Report served from cache")
-        return GroupReport.model_validate(cached)
+    # if cached := await get_cached_data(app.state.redis, cache_key):
+    #     logger.info("Report served from cache")
+    #     return GroupReport.model_validate(cached)
 
     # 2) Собрать запланированные и посещённые часы
     planned  = await fetch_planned_hours(app.state.db, group_id)
