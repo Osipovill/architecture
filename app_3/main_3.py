@@ -208,7 +208,7 @@ async def get_group_hours(
             course_id      = data["course_id"],
             course_title   = data["course_title"],
             planned_hours  = data["planned_hours"],
-            attended_hours = attended.get((stu_id, crs_id), 0)
+            attended_hours = attended.get((stu_id, crs_id), 0) if attended.get((stu_id, crs_id), 0) <= data["planned_hours"] else data["planned_hours"]
         )
         if stu_id not in students_map:
             students_map[stu_id] = {
