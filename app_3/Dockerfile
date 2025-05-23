@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Открываем порт
-EXPOSE 8002
+EXPOSE 8003
 
 # По умолчанию запускаем Uvicorn с вашим приложением
-CMD ["uvicorn", "main_3:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["uvicorn", "main_3:app", "--host", "0.0.0.0", "--port", "8003"]

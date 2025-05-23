@@ -230,7 +230,7 @@ services:
     container_name: app3_service
     restart: unless-stopped
     ports:
-      - "8002:8002"
+      - "8003:8003"
     depends_on:
       postgres:
         condition: service_healthy
