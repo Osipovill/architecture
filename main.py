@@ -58,10 +58,11 @@ def generate_pg_data():
                 INSERT INTO classes
                   (type, title, requirements, date, duration, tag, course_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING class_id
                 """,
                 (ctype, title, req, cls_date, duration, tag, course_id)
             )
-            new_classes.append((cur.lastrowid if hasattr(cur, 'lastrowid') else None, title, cls_date))
+            new_classes.append(cur.fetchone()[0])
 
     conn.commit()
 
@@ -84,25 +85,17 @@ def generate_pg_data():
             """
             INSERT INTO shedule (title, start_time, end_time, class_id)
             VALUES (%s, %s, %s, %s)
+            RETURNING shedule_id
             """,
             (title, cls_date, cls_date, class_id)
         )
-        new_schedules.append(cur.lastrowid if hasattr(cur, 'lastrowid') else None)
+        new_schedules.append(cur.fetchone()[0])
 
     conn.commit()
-
-    # Получаем ID всех новых schedule
-    cur.execute(
-        "SELECT shedule_id FROM shedule WHERE shedule_id > %s",
-        (max_sch_before,)
-    )
-    new_schedules = [row[0] for row in cur.fetchall()]
-    print(f"Сгенерировано {len(new_schedules)} записей в shedule.")
 
     # === Посещаемость ===
     print("=== Генерация записей о посещении ===")
     for sid in students:
-        # для каждого студента 5–10 случайных посещений
         picked = random.sample(new_schedules, k=random.randint(5, min(len(new_schedules), 10)))
         for sch_id in picked:
             presence   = random.choice([True, False])
@@ -123,20 +116,61 @@ def generate_pg_data():
     print("=== Данные PostgreSQL: классы, расписание и посещения сгенерированы. ===")
 
 
+def generate_more_attendance():
+    """
+    Генерирует дополнительные посещения для уже существующих расписаний,
+    чтобы получить неполные показатели посещаемости (не только 0% или 100%).
+    """
+    conn = psycopg2.connect(dsn=POSTGRES_DSN)
+    cur  = conn.cursor()
+
+    print("=== Генерация дополнительных посещений для существующих shedule ===")
+    # Берём все shedule и всех студентов
+    cur.execute("SELECT shedule_id FROM shedule")
+    schedule_ids = [row[0] for row in cur.fetchall()]
+    cur.execute("SELECT student_id FROM students")
+    student_ids  = [row[0] for row in cur.fetchall()]
+
+    # Для каждого сочетания выбираем с вероятностью 50% запись посещения
+    for sid in student_ids:
+        for sch_id in schedule_ids:
+            # Пропускаем уже существующие записи
+            cur.execute(
+                "SELECT 1 FROM attendances WHERE student_id=%s AND shedule_id=%s",
+                (sid, sch_id)
+            )
+            if cur.fetchone():
+                continue
+            # Рандомим посещение: True 70%, False 30%
+            presence = random.random() < 0.7
+            visit_date = date.today() - timedelta(days=random.randint(0, 30))
+            cur.execute(
+                """
+                INSERT INTO attendances (student_id, shedule_id, presence, date)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (sid, sch_id, presence, visit_date)
+            )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("=== Дополнительные посещения сгенерированы. ===")
+
+
 def populate_neo4j_from_pg():
     print("=== Загрузка данных в Neo4j ===")
     conn = psycopg2.connect(dsn=POSTGRES_DSN)
     cur  = conn.cursor()
 
-    # Извлекаем необходимые данные
     cur.execute("SELECT group_id, name FROM groups")
-    groups = cur.fetchall()
+    groups    = cur.fetchall()
     cur.execute("SELECT student_id, full_name, group_id FROM students")
-    students = cur.fetchall()
+    students  = cur.fetchall()
     cur.execute("SELECT shedule_id, title, start_time FROM shedule")
     schedules = cur.fetchall()
     cur.execute("SELECT student_id, shedule_id FROM attendances WHERE presence = TRUE")
-    attends = cur.fetchall()
+    attends   = cur.fetchall()
 
     cur.close()
     conn.close()
@@ -278,5 +312,6 @@ def generate_for_first_group():
 
 if __name__ == "__main__":
     generate_pg_data()
+    generate_more_attendance()
     populate_neo4j_from_pg()
     generate_for_first_group()

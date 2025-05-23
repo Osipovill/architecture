@@ -86,8 +86,8 @@ async def proxy_report(
     term: str = Query("введение"),
     start: str = Query("2023-09-01"),
     end: str = Query("2023-10-16"),
-    # credentials: HTTPAuthorizationCredentials = Depends(security),
-    # user=Depends(verify_jwt)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user=Depends(verify_jwt)
 ):
     async with httpx.AsyncClient() as client:
         try:
@@ -109,8 +109,8 @@ async def proxy_course_attendance(
     year: Optional[int] = Query(None, description="Academic year"),
     semester: Optional[int] = Query(None, ge=1, le=2, description="Semester (1 or 2)"),
     requirements: Optional[str] = Query(None),
-    # credentials: HTTPAuthorizationCredentials = Depends(security),
-    # user=Depends(verify_jwt)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user=Depends(verify_jwt)
 ):
     params = {k: v for k, v in {"year": year, "semester": semester, "requirements": requirements}.items() if v is not None}
 
@@ -131,8 +131,8 @@ async def proxy_course_attendance(
 @app.get("/api/group-hours/{group_id}")
 async def proxy_group_hours(
     group_id: int = Path(..., ge=1, description="ID группы"),
-    # credentials: HTTPAuthorizationCredentials = Depends(security),
-    # user=Depends(verify_jwt)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user=Depends(verify_jwt)
 ):
     async with httpx.AsyncClient() as client:
         try:
