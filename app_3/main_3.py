@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from datetime import datetime
 from json import JSONEncoder
 
@@ -66,7 +66,7 @@ async def get_cached_data(redis, key: str):
 
 async def set_cached_data(redis, key: str, data, ttl: int = CACHE_TTL):
     await redis.set(key, json.dumps(data, cls=CustomJSONEncoder), ex=ttl)
-    logger.info("Cached: %s (ttl=%ds)", key, ttl)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -106,41 +106,67 @@ class GroupReport(BaseModel):
     students: List[StudentInfo]
 
 
-async def fetch_planned_hours(pool, group_id: int) -> dict[Tuple[int, int], dict]:
-    g, s, c, cl = Table("groups"), Table("students"), Table("courses"), Table("classes")
-
+async def fetch_group_code(pg_pool, group_id: int) -> str:
+    groups = Table("groups")
     q = (
-        PypikaQuery.from_(g)
-        .join(s).on(s.group_id == g.group_id)
-        .join(c).on(c.spec_id == g.spec_id)
-        .join(cl).on(cl.course_id == c.course_id)
-        .select(
-            g.group_id,
-            g.name.as_("group_name"),
-            s.student_id,
-            s.full_name.as_("student_name"),
-            c.course_id,
-            c.title.as_("course_title"),
-            Sum(cl.duration / 60).as_("planned_hours"),
-        )
-        .where((g.group_id == group_id)
-               & (cl.type == "Лекция")
-               & (cl.tag == "специальная"))
-        .groupby(g.group_id, g.name, s.student_id, s.full_name, c.course_id, c.title)
+        PypikaQuery.from_(groups)
+        .select(groups.name)
+        .where(groups.group_id == group_id)
     )
+    row = await pg_pool.fetchrow(q.get_sql())
+    if not row:
+        raise HTTPException(404, "Group not found in PostgreSQL")
+    return row["name"]
 
-    rows = await pool.fetch(q.get_sql())
-    return {(r["student_id"], r["course_id"]): dict(r) for r in rows}
 
-
-async def fetch_attended_hours(driver, group_code: str) -> dict[Tuple[int, int], int]:
+async def fetch_neo4j_planned_hours(driver, group_code: str) -> Dict[Tuple[int, int], Dict]:
     query = """
-    MATCH (g:Group {code: $group_code})-[:HAS_SCHEDULE]->(sch:Schedule)
+    MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
+    MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)
     WHERE sch.type = 'Лекция' AND sch.tag = 'специальная'
-    MATCH (s:Student)-[:BELONGS_TO]->(g)
+    WITH s, sch.course_id AS course_id, COUNT(sch) * 2 AS planned_hours
+    RETURN s.id AS student_id, course_id, planned_hours
+    """
+
+    planned = {}
+    try:
+        async with driver.session() as session:
+            result = await session.run(query, group_code=group_code)
+            async for record in result:
+                key = (record["student_id"], record["course_id"])
+                planned[key] = {
+                    "planned_hours": record["planned_hours"],
+                    "course_id": record["course_id"]
+                }
+    except Exception as e:
+        logger.error("Neo4j error: %s", e)
+        raise HTTPException(500, "Failed to fetch planned hours")
+    return planned
+
+
+async def fetch_course_titles(pg_pool, course_ids: List[int]) -> Dict[int, str]:
+    if not course_ids:
+        return {}
+
+    courses = Table("courses")
+    q = (
+        PypikaQuery.from_(courses)
+        .select(courses.course_id, courses.title)
+        .where(courses.course_id.isin(course_ids))
+    )
+    rows = await pg_pool.fetch(q.get_sql())
+
+    return {r["course_id"]: r["title"] for r in rows}
+
+
+async def fetch_neo4j_attended_hours(driver, group_code: str) -> Dict[Tuple[int, int], int]:
+    query = """
+    MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
+    MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)
+    WHERE sch.type = 'Лекция' AND sch.tag = 'специальная'
     OPTIONAL MATCH (s)-[:ATTENDED]->(sch)
-    WITH s, sch, COUNT(sch) AS attended
-    RETURN s.id AS student_id, sch.course_id AS course_id, attended * 2 AS hours
+    WITH s, sch.course_id AS course_id, COUNT(sch) * 2 AS attended_hours
+    RETURN s.id AS student_id, course_id, attended_hours
     """
 
     attended = {}
@@ -149,12 +175,29 @@ async def fetch_attended_hours(driver, group_code: str) -> dict[Tuple[int, int],
             result = await session.run(query, group_code=group_code)
             async for record in result:
                 key = (record["student_id"], record["course_id"])
-                attended[key] = record["hours"]
+                attended[key] = record["attended_hours"]
     except Exception as e:
         logger.error("Neo4j error: %s", e)
-        raise HTTPException(500, "Neo4j query failed")
-
+        raise HTTPException(500, "Failed to fetch attended hours")
     return attended
+
+
+async def fetch_neo4j_students(driver, group_code: str) -> Dict[int, str]:
+    query = """
+    MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
+    RETURN s.id AS student_id, s.name AS student_name
+    """
+
+    students = {}
+    try:
+        async with driver.session() as session:
+            result = await session.run(query, group_code=group_code)
+            async for record in result:
+                students[record["student_id"]] = record["student_name"]
+    except Exception as e:
+        logger.error("Neo4j error: %s", e)
+        raise HTTPException(500, "Failed to fetch students")
+    return students
 
 
 @app.get("/api/group-hours/{group_id}", response_model=GroupReport)
@@ -164,38 +207,40 @@ async def get_group_hours(group_id: int = Path(..., ge=1)):
     if cached := await get_cached_data(app.state.redis, cache_key):
         return GroupReport.model_validate(cached)
 
-    # Получаем базовую информацию о группе из PostgreSQL
-    planned = await fetch_planned_hours(app.state.db, group_id)
+    group_code = await fetch_group_code(app.state.db, group_id)
+
+    planned = await fetch_neo4j_planned_hours(app.state.neo4j, group_code)
     if not planned:
-        raise HTTPException(404, "Group not found")
+        raise HTTPException(404, "No planned lectures found")
 
-    first_group = next(iter(planned.values()))
-    group_code = first_group["group_name"]
+    course_ids = list({c_id for (_, c_id) in planned.keys()})
+    course_titles = await fetch_course_titles(app.state.db, course_ids)
 
-    # Получаем данные о посещениях из Neo4j
-    attended = await fetch_attended_hours(app.state.neo4j, group_code)
+    attended = await fetch_neo4j_attended_hours(app.state.neo4j, group_code)
+    students = await fetch_neo4j_students(app.state.neo4j, group_code)
 
-    students = {}
-    for (sid, cid), data in planned.items():
+    # Формируем отчет
+    students_map = {}
+    for (stu_id, crs_id), data in planned.items():
         course = CourseInfo(
-            course_id=cid,
-            course_title=data["course_title"],
+            course_id=crs_id,
+            course_title=course_titles.get(crs_id, "Unknown Course"),
             planned_hours=data["planned_hours"],
-            attended_hours=attended.get((sid, cid), 0)
+            attended_hours=attended.get((stu_id, crs_id), 0)
         )
 
-        if sid not in students:
-            students[sid] = StudentInfo(
-                student_id=sid,
-                student_name=data["student_name"],
+        if stu_id not in students_map:
+            students_map[stu_id] = StudentInfo(
+                student_id=stu_id,
+                student_name=students.get(stu_id, "Unknown Student"),
                 courses=[]
             )
-        students[sid].courses.append(course)
+        students_map[stu_id].courses.append(course)
 
     report = GroupReport(
-        group_id=first_group["group_id"],
+        group_id=group_id,
         group_name=group_code,
-        students=list(students.values())
+        students=list(students_map.values())
     )
 
     await set_cached_data(app.state.redis, cache_key, report.model_dump())
