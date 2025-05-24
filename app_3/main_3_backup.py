@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import List
+from typing import List, Tuple
 from datetime import datetime
 from json import JSONEncoder
 
@@ -13,25 +13,30 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 import asyncpg
 import aioredis
+from neo4j import AsyncGraphDatabase
 from pypika import Query as PypikaQuery, Table
 from pypika.functions import Count, Sum
 
 
 class CustomJSONEncoder(JSONEncoder):
-    """Сериализация datetime → ISO."""
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.isoformat()
         return super().default(obj)
 
+
 class Settings(BaseSettings):
     postgres_dsn: str = Field(..., env="POSTGRES_DSN")
-    redis_dsn:    str = Field(..., env="REDIS_DSN")
+    redis_dsn: str = Field(..., env="REDIS_DSN")
+    neo4j_uri: str = Field(..., env="NEO4J_URI")
+    neo4j_user: str = Field(..., env="NEO4J_USER")
+    neo4j_password: str = Field(..., env="NEO4J_PASSWORD")
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "ignore"
+
 
 settings = Settings()
 
@@ -46,8 +51,10 @@ if not logger.handlers:
 
 CACHE_TTL = 60
 
+
 def generate_cache_key(prefix: str, *args) -> str:
     return ":".join([prefix, *map(str, args)])
+
 
 async def get_cached_data(redis, key: str):
     raw = await redis.get(key)
@@ -63,48 +70,49 @@ async def set_cached_data(redis, key: str, data, ttl: int = CACHE_TTL):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting Lab-3 Service…")
-    app.state.db    = await asyncpg.create_pool(settings.postgres_dsn)
+    logger.info("Starting Lab-3 Service...")
+    app.state.db = await asyncpg.create_pool(settings.postgres_dsn)
     app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
-    logger.info("Connected to Postgres & Redis")
+    app.state.neo4j = AsyncGraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password)
+    )
     yield
-    logger.info("Shutting down Lab-3 Service…")
+    logger.info("Shutting down...")
     await app.state.db.close()
     await app.state.redis.close()
-    logger.info("All connections closed")
+    await app.state.neo4j.close()
+
 
 app = FastAPI(title="App3 Service", lifespan=lifespan)
 
+
 class CourseInfo(BaseModel):
-    course_id:      int
-    course_title:   str
-    planned_hours:  int
+    course_id: int
+    course_title: str
+    planned_hours: int
     attended_hours: int
 
+
 class StudentInfo(BaseModel):
-    student_id:   int
+    student_id: int
     student_name: str
-    courses:      List[CourseInfo]
+    courses: List[CourseInfo]
+
 
 class GroupReport(BaseModel):
-    group_id:   int
+    group_id: int
     group_name: str
-    students:   List[StudentInfo]
+    students: List[StudentInfo]
 
-async def fetch_planned_hours(pool, group_id: int) -> dict[tuple[int,int], dict]:
-    """
-    сразу агрегируем в одном запросе,.
-    """
-    logger.info("Fetch planned hours for group_id=%s", group_id)
+
+async def fetch_planned_hours(pool, group_id: int) -> dict[Tuple[int, int], dict]:
     g, s, c, cl = Table("groups"), Table("students"), Table("courses"), Table("classes")
 
-    acad_hours = (cl.duration / 60)
-
     q = (
-        PypikaQuery
-        .from_(g)
+        PypikaQuery.from_(g)
         .join(s).on(s.group_id == g.group_id)
-        .join(c).on(c.spec_id  == g.spec_id)
+        .join(c).on(c.spec_id == g.spec_id)
         .join(cl).on(cl.course_id == c.course_id)
         .select(
             g.group_id,
@@ -113,116 +121,91 @@ async def fetch_planned_hours(pool, group_id: int) -> dict[tuple[int,int], dict]
             s.full_name.as_("student_name"),
             c.course_id,
             c.title.as_("course_title"),
-            Sum(acad_hours).as_("planned_hours"),
+            Sum(cl.duration / 60).as_("planned_hours"),
         )
-        .where(g.group_id == group_id)
-        .where(cl.type == "Лекция")
-        .where(cl.tag  == "специальная")
-        .groupby(
-            g.group_id, g.name,
-            s.student_id, s.full_name,
-            c.course_id, c.title
-        )
+        .where((g.group_id == group_id)
+               & (cl.type == "Лекция")
+               & (cl.tag == "специальная"))
+        .groupby(g.group_id, g.name, s.student_id, s.full_name, c.course_id, c.title)
     )
 
-    sql = q.get_sql()
-    rows = await pool.fetch(sql)
-    logger.info("Planned rows: %d", len(rows))
+    rows = await pool.fetch(q.get_sql())
     return {(r["student_id"], r["course_id"]): dict(r) for r in rows}
 
 
-async def fetch_attended_hours(pool, group_id: int) -> dict[tuple[int,int], int]:
+async def fetch_attended_hours(driver, group_code: str) -> dict[Tuple[int, int], int]:
+    query = """
+    MATCH (g:Group {code: $group_code})-[:HAS_SCHEDULE]->(sch:Schedule)
+    WHERE sch.type = 'Лекция' AND sch.tag = 'специальная'
+    MATCH (s:Student)-[:BELONGS_TO]->(g)
+    OPTIONAL MATCH (s)-[:ATTENDED]->(sch)
+    WITH s, sch, COUNT(sch) AS attended
+    RETURN s.id AS student_id, sch.course_id AS course_id, attended * 2 AS hours
     """
-    агрегируем COUNT и умножаем на 2 для акад. часов,
-    """
-    logger.info("Fetch attended hours for group_id=%s", group_id)
-    s, a, sch, cl, c = (
-        Table("students"),
-        Table("attendances"),
-        Table("shedule"),
-        Table("classes"),
-        Table("courses"),
-    )
 
-    q = (
-        PypikaQuery
-        .from_(s)
-        .join(a).on((a.student_id == s.student_id) & (a.presence == True))
-        .join(sch).on(a.shedule_id == sch.shedule_id)
-        .join(cl).on(sch.class_id == cl.class_id)
-        .join(c).on(cl.course_id == c.course_id)
-        .select(
-            s.student_id,
-            c.course_id,
-            (Count(sch.shedule_id) * 2).as_("attended_hours"),
-        )
-        .where(s.group_id == group_id)
-        .where(cl.type == "Лекция")
-        .where(cl.tag  == "специальная")
-        .groupby(s.student_id, c.course_id)
-    )
+    attended = {}
+    try:
+        async with driver.session() as session:
+            result = await session.run(query, group_code=group_code)
+            async for record in result:
+                key = (record["student_id"], record["course_id"])
+                attended[key] = record["hours"]
+    except Exception as e:
+        logger.error("Neo4j error: %s", e)
+        raise HTTPException(500, "Neo4j query failed")
 
-    sql = q.get_sql()
-    rows = await pool.fetch(sql)
-    logger.info("Attended rows: %d", len(rows))
-    return {(r["student_id"], r["course_id"]): r["attended_hours"] for r in rows}
+    return attended
 
-@app.get(
-    "/api/group-hours/{group_id}",
-    response_model=GroupReport
-)
-async def get_group_hours(
-    group_id: int = Path(..., ge=1, description="ID группы")
-):
-    logger.info("Generate report for group_id=%s", group_id)
+
+@app.get("/api/group-hours/{group_id}", response_model=GroupReport)
+async def get_group_hours(group_id: int = Path(..., ge=1)):
     cache_key = generate_cache_key("group_hours", group_id)
 
-    # 1) Попробовать из кэша
     if cached := await get_cached_data(app.state.redis, cache_key):
-        logger.info("Report served from cache")
         return GroupReport.model_validate(cached)
 
-    # 2) Собрать запланированные и посещённые часы
-    planned  = await fetch_planned_hours(app.state.db, group_id)
+    # Получаем базовую информацию о группе из PostgreSQL
+    planned = await fetch_planned_hours(app.state.db, group_id)
     if not planned:
-        logger.warning("Group %s not found or no special lectures", group_id)
-        raise HTTPException(404, "Group not found or no special lectures")
-    attended = await fetch_attended_hours(app.state.db, group_id)
+        raise HTTPException(404, "Group not found")
 
-    # 3) Сгруппировать по студентам
-    students_map: dict[int, dict] = {}
-    for (stu_id, crs_id), data in planned.items():
+    first_group = next(iter(planned.values()))
+    group_code = first_group["group_name"]
+
+    # Получаем данные о посещениях из Neo4j
+    attended = await fetch_attended_hours(app.state.neo4j, group_code)
+
+    students = {}
+    for (sid, cid), data in planned.items():
         course = CourseInfo(
-            course_id      = data["course_id"],
-            course_title   = data["course_title"],
-            planned_hours  = data["planned_hours"],
-            attended_hours = attended.get((stu_id, crs_id), 0) if attended.get((stu_id, crs_id), 0) <= data["planned_hours"] else data["planned_hours"]
+            course_id=cid,
+            course_title=data["course_title"],
+            planned_hours=data["planned_hours"],
+            attended_hours=attended.get((sid, cid), 0)
         )
-        if stu_id not in students_map:
-            students_map[stu_id] = {
-                "student_id":   stu_id,
-                "student_name": data["student_name"],
-                "courses":      []
-            }
-        students_map[stu_id]["courses"].append(course)
 
-    # 4) Собрать итоговую структуру
-    first = next(iter(planned.values()))
+        if sid not in students:
+            students[sid] = StudentInfo(
+                student_id=sid,
+                student_name=data["student_name"],
+                courses=[]
+            )
+        students[sid].courses.append(course)
+
     report = GroupReport(
-        group_id   = first["group_id"],
-        group_name = first["group_name"],
-        students   = [StudentInfo(**si) for si in students_map.values()]
+        group_id=first_group["group_id"],
+        group_name=group_code,
+        students=list(students.values())
     )
 
-    # 5) Сохранить в кэш и вернуть
     await set_cached_data(app.state.redis, cache_key, report.model_dump())
-    logger.info("Report generated, students=%d", len(report.students))
     return report
+
 
 if __name__ == "__main__":
     uvicorn.run(
-        "app_3.main_3:app",
-        host="127.0.0.1",
+        "app:app",
+        host="0.0.0.0",
         port=8003,
-        workers=1
+        reload=True
     )
