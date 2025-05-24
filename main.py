@@ -158,57 +158,129 @@ def generate_more_attendance():
     print("=== Дополнительные посещения сгенерированы. ===")
 
 
-def populate_neo4j_from_pg():
+def populate_neo4j_from_pg() -> None:
+    """
+    Полностью пересоздаёт граф Neo4j на основании текущих данных PostgreSQL
+    (схема 2025-05), включая все поля и связи:
+
+        Group(id, name)
+        └─ Student(id, name) ─[:BELONGS_TO]→ Group
+        Schedule(id, title, date, duration)
+        Group ─[:HAS_SCHEDULE]→ Schedule
+        Student ─[:ATTENDED]→   Schedule
+    """
+    import psycopg2
+    from neo4j import GraphDatabase
+
     print("=== Загрузка данных в Neo4j ===")
+
+    # ---------- PostgreSQL ----------
     conn = psycopg2.connect(dsn=POSTGRES_DSN)
     cur  = conn.cursor()
 
+    # 1. Группы
     cur.execute("SELECT group_id, name FROM groups")
-    groups    = cur.fetchall()
-    cur.execute("SELECT student_id, full_name, group_id FROM students")
-    students  = cur.fetchall()
-    cur.execute("SELECT shedule_id, title, start_time FROM shedule")
-    schedules = cur.fetchall()
-    cur.execute("SELECT student_id, shedule_id FROM attendances WHERE presence = TRUE")
-    attends   = cur.fetchall()
+    groups = cur.fetchall()                         # [(gid, name), ...]
+
+    # 2. Студенты
+    cur.execute("""
+        SELECT student_id, full_name, group_id
+        FROM students
+    """)
+    students = cur.fetchall()                       # [(sid, full_name, gid), ...]
+
+    # 3. Расписания с привязкой к группам и длительностью
+    cur.execute("""
+        SELECT sh.shedule_id,
+               sh.title,
+               sh.start_time,
+               cl.duration,
+               g.group_id
+        FROM   shedule  AS sh
+        JOIN   classes  AS cl ON cl.class_id  = sh.class_id
+        JOIN   courses  AS c  ON c.course_id  = cl.course_id
+        JOIN   specialties AS sp ON sp.spec_id = c.spec_id
+        JOIN   groups    AS g  ON g.spec_id   = sp.spec_id
+    """)
+    # одна строка = конкретное расписание + одна из групп, для которой оно актуально
+    schedules = cur.fetchall()                      # [(sch_id, title, date, dur, gid), ...]
+
+    # 4. Посещаемость (только presence = TRUE)
+    cur.execute("""
+        SELECT student_id, shedule_id
+        FROM   attendances
+        WHERE  presence = TRUE
+    """)
+    attends = cur.fetchall()                        # [(sid, sch_id), ...]
 
     cur.close()
     conn.close()
 
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    # ---------- Neo4j ----------
+    driver = GraphDatabase.driver(
+        NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
+    )
+
     with driver.session() as session:
+        # Полная очистка графа
         session.run("MATCH (n) DETACH DELETE n")
 
-        for gid, code in groups:
-            session.run("CREATE (:Group {id:$id, code:$code})", id=gid, code=code)
+        # --- 1. Группы ---
+        for gid, name in groups:
+            session.run("""
+                MERGE (g:Group {id:$id})
+                SET   g.code = $code    // оставляем поле `code`, как в прежних запросах
+                """,
+                id=gid, code=name
+            )
 
-        for sid, name, gid in students:
-            session.run(
-                """
+        # --- 2. Студенты и связь BELONGS_TO ---
+        for sid, full_name, gid in students:
+            session.run("""
                 MATCH (g:Group {id:$gid})
-                CREATE (:Student {id:$sid, name:$name})-[:MEMBER_OF]->(g)
+                MERGE (s:Student {id:$sid})
+                SET   s.name = $name
+                MERGE (s)-[:BELONGS_TO]->(g)
                 """,
-                sid=sid, name=name, gid=gid
+                sid=sid, name=full_name, gid=gid
             )
 
-        for sch_id, title, dt in schedules:
-            session.run(
-                "CREATE (:Schedule {id:$id, title:$title, date:date($date)})",
-                id=sch_id, title=title, date=dt.isoformat()
+        # --- 3. Расписания + связь HAS_SCHEDULE ---
+        for sch_id, title, dt, dur, gid in schedules:
+            session.run("""
+                // создаём/обновляем расписание
+                MERGE (sch:Schedule {id:$sch_id})
+                ON CREATE SET sch.title = $title,
+                              sch.date  = date($date),
+                              sch.duration = $dur
+                ON MATCH  SET sch.title = $title,
+                              sch.date  = date($date),
+                              sch.duration = $dur
+
+                // привязываем к группе
+                WITH sch
+                MATCH (g:Group {id:$gid})
+                MERGE (g)-[:HAS_SCHEDULE]->(sch)
+                """,
+                sch_id=sch_id,
+                title=title,
+                date=dt.isoformat(),
+                dur=dur,
+                gid=gid
             )
 
+        # --- 4. Посещаемость ---
         for sid, sch_id in attends:
-            session.run(
-                """
-                MATCH (s:Student {id:$sid}), (sch:Schedule {id:$schid})
-                CREATE (s)-[:ATTENDED]->(sch)
+            session.run("""
+                MATCH (s:Student  {id:$sid}),
+                      (sch:Schedule {id:$sch_id})
+                MERGE (s)-[:ATTENDED]->(sch)
                 """,
-                sid=sid, schid=sch_id
+                sid=sid, sch_id=sch_id
             )
 
     driver.close()
-    print("=== Neo4j: данные загружены. ===")
-
+    print("=== Neo4j: данные загружены и соответствует PostgreSQL ===")
 
 def generate_for_first_group():
     """
@@ -313,5 +385,5 @@ def generate_for_first_group():
 if __name__ == "__main__":
     generate_pg_data()
     generate_more_attendance()
-    populate_neo4j_from_pg()
     generate_for_first_group()
+    populate_neo4j_from_pg()
