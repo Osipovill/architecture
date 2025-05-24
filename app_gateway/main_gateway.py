@@ -94,7 +94,7 @@ async def proxy_report(
             resp = await client.get(
                 f"{settings.APP1_URL}/report",
                 params={"term": term, "start": start, "end": end},
-                # headers={"Authorization": f"Bearer {credentials.credentials}"}
+                headers={"Authorization": f"Bearer {credentials.credentials}"}
             )
         except httpx.RequestError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
@@ -119,7 +119,7 @@ async def proxy_course_attendance(
             resp = await client.get(
                 f"{settings.APP2_URL}/api/course-attendance/{course_title}",
                 params=params,
-                # headers={"Authorization": f"Bearer {credentials.credentials}"}
+                headers={"Authorization": f"Bearer {credentials.credentials}"}
             )
         except httpx.RequestError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
@@ -138,7 +138,7 @@ async def proxy_group_hours(
         try:
             resp = await client.get(
                 f"{settings.APP3_URL}/api/group-hours/{group_id}",
-                # headers={"Authorization": f"Bearer {credentials.credentials}"}
+                headers={"Authorization": f"Bearer {credentials.credentials}"}
             )
         except httpx.RequestError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
