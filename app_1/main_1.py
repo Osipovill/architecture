@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query
 import asyncpg
 from elasticsearch import AsyncElasticsearch
 import aioredis
+from neo4j import AsyncGraphDatabase
 from pypika import Query as PypikaQuery, Table, Field, Case, Parameter
 from pypika.functions import Count, Sum
 from pydantic import BaseModel, AnyHttpUrl, Field
@@ -59,11 +60,14 @@ class Settings(BaseSettings):
     es_host: AnyHttpUrl = Field(..., env="ES_HOST")
     redis_dsn: str     = Field(..., env="REDIS_DSN")
     mongo_dsn: str     = Field(..., env="MONGO_DSN")
+    neo4j_uri: str = Field(..., env="NEO4J_URI")
+    neo4j_user: str = Field(..., env="NEO4J_USER")
+    neo4j_password: str = Field(..., env="NEO4J_PASSWORD")
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        extra = "ignore"  
+        extra = "ignore"
 
 settings = Settings()
 
@@ -72,6 +76,9 @@ async def lifespan(app: FastAPI):
     app.state.db  = await asyncpg.create_pool(dsn=settings.postgres_dsn)
     app.state.es    = AsyncElasticsearch([str(settings.es_host)])
     app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
+    app.state.neo4j = AsyncGraphDatabase.driver(
+        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
+    )
     mongo_client = AsyncIOMotorClient(settings.mongo_dsn, serverSelectionTimeoutMS=5000)
     try:
         await mongo_client.admin.command("ping")
@@ -84,6 +91,7 @@ async def lifespan(app: FastAPI):
     yield
     await app.state.db.close()
     await app.state.es.close()
+    await app.state.neo4j.close()
     await app.state.redis.close()
 
 class StudentReport(BaseModel):
@@ -109,58 +117,51 @@ async def fetch_lecture_ids(es, pool, term: str, start: str, end: str) -> set[in
     # Проверяем кэш для результатов поиска ES
     es_cache_key = generate_cache_key("es_search", term)
     cached_ids = await get_cached_data(app.state.redis, es_cache_key)
-    
+
     if cached_ids is None:
         # 1) полнотекстовый поиск в ES если нет в кэше
         query = {"query": {"match": {"content": term}}}
         resp = await es.search(index="materials", body=query, size=1000)
-        all_ids = [int(hit["_source"]["class_id"]) for hit in resp["hits"]["hits"]]
-        if not all_ids:
+        class_ids = [int(hit["_source"]["class_id"]) for hit in resp["hits"]["hits"]]
+        if not class_ids:
             return None
-            
-        # Кэшируем результаты поиска
-        await set_cached_data(app.state.redis, es_cache_key, all_ids)
+        await set_cached_data(app.state.redis, es_cache_key, class_ids)
     else:
-        all_ids = cached_ids
+        class_ids = cached_ids
         
     # 2) фильтрация по дате в Postgres
     sch = Table('shedule')
     q = (
         PypikaQuery
         .from_(sch)
-        .select(sch.class_id).distinct()
-        .where(sch.class_id.isin(all_ids))
+        .select(sch.shedule_id).distinct()
+        .where(sch.class_id.isin(class_ids))
         .where(sch.start_time.between(start, end))
     )
-    sql = q.get_sql()
-    rows = await pool.fetch(sql)
-    return {r['class_id'] for r in rows}
+    rows = await pool.fetch(q.get_sql())
+    return {r["shedule_id"] for r in rows}
 
-async def fetch_attendance(pool, lecture_ids: list[int]) -> dict[int, tuple[int, int]]:
-    """Подсчет статистики посещаемости по списку лекций"""
-    a = Table('attendances')
-    s = Table('shedule')
 
-    q = (
-        PypikaQuery
-        .from_(a)
-        .join(s).on(a.shedule_id == s.shedule_id)
-        .select(
-            a.student_id,
-            Sum(
-                Case()
-                .when(a.presence == True, 1)
-                .else_(0)
-            ).as_('attended'),
-            Count(a.student_id).as_('total')
-        )
-        .where(s.class_id.isin(lecture_ids))
-        .groupby(a.student_id)
-    )
-    sql = q.get_sql()
-    rows = await pool.fetch(sql)
-    result = {r["student_id"]: (r["attended"], r["total"]) for r in rows}
-    return result
+async def fetch_attendance(
+    neo4j: AsyncGraphDatabase,
+    lecture_ids: set[int]
+) -> dict[int, tuple[int, int]]:
+    """
+    """
+    cypher = """
+            MATCH (s:Student)-[:BELONGS_TO]->(:Group)-[:HAS_SCHEDULE]->(sch:Schedule)
+            WHERE sch.id IN $schedule_ids
+            OPTIONAL MATCH (s)-[a:ATTENDED]->(sch)
+            WITH s.id AS student_id,
+                 count(sch) AS total_cnt,      
+                 count(a)   AS attended_cnt    
+            RETURN student_id, attended_cnt, total_cnt
+        """
+
+    async with neo4j.session(database="neo4j") as sess:
+        result = await sess.run(cypher, schedule_ids=list(lecture_ids))
+        rows   = await result.data()
+    return {r["student_id"]: (r["attended_cnt"], r["total_cnt"]) for r in rows}
 
 
 async def fetch_student_details(pool, mongo, student_ids: list[int]) -> dict[int, dict]:
@@ -250,7 +251,7 @@ async def generate_report(
     logger.info(" Found lecture_ids: %s", lecture_ids)
 
     # 2. Получение данных о посещаемости
-    attendance = await fetch_attendance(app.state.db, lecture_ids)
+    attendance = await fetch_attendance(app.state.neo4j, lecture_ids)
     logger.info(" Found attendance: %s", attendance)
 
     # 3. Расчёт процента посещаемости
