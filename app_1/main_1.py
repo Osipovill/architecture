@@ -22,7 +22,6 @@ class CustomJSONEncoder(JSONEncoder):
             return obj.isoformat()
         return super().default(obj)
 
-# Настройка расширенного логирования
 logger = logging.getLogger("lab1_service")
 if not logger.handlers:
     log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -55,8 +54,6 @@ async def set_cached_data(redis, key: str, data, ttl: int = CACHE_TTL):
     await redis.set(key, json.dumps(data, cls=CustomJSONEncoder), ex=ttl)
     logger.info(f"Cached: {key}, TTL: {ttl}")
 
-# ----------------- CONFIGURATION -----------------
-
 class Settings(BaseSettings):
     postgres_dsn: str = Field(..., env="POSTGRES_DSN")
     es_host: AnyHttpUrl = Field(..., env="ES_HOST")
@@ -80,7 +77,7 @@ async def lifespan(app: FastAPI):
         await mongo_client.admin.command("ping")
         logger.info("MongoDB connected")
     except Exception as e:
-        logger.error("❌ MongoDB connection error: %s", e)
+        logger.error("MongoDB connection error: %s", e)
         raise
     app.state.mongo = mongo_client[mongo_client.get_default_database().name]
 
@@ -89,7 +86,6 @@ async def lifespan(app: FastAPI):
     await app.state.es.close()
     await app.state.redis.close()
 
-# ----------------- Pydantic Models -----------------
 class StudentReport(BaseModel):
     student_id: int
     code: str
@@ -108,7 +104,6 @@ class ReportResponse(BaseModel):
 
 app = FastAPI(title="Lab1 Service", lifespan=lifespan)
 
-# ----------------- BUSINESS LOGIC -----------------
 async def fetch_lecture_ids(es, pool, term: str, start: str, end: str) -> set[int] | None:
     """Поиск лекций по термину в ES и фильтрация по датам в PostgreSQL"""
     # Проверяем кэш для результатов поиска ES
@@ -231,7 +226,6 @@ async def fetch_student_details(pool, mongo, student_ids: list[int]) -> dict[int
 
     return details
 
-# ----------------- ROUTE -----------------
 @app.get("/report", response_model=ReportResponse)
 async def generate_report(
     term: str = Query("введение", description="Search term for lectures"),
