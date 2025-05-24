@@ -8,68 +8,50 @@ from datetime import date, timedelta
 import psycopg2
 from neo4j import GraphDatabase
 
-import os
-
-# —————— Важно! ——————
-# Чтобы libpq (библиотека, на которой основан psycopg2) сразу шла с UTF-8,
-# нужно задать переменную окружения PGCLIENTENCODING до импорта psycopg2.
-os.environ.setdefault('PGCLIENTENCODING', 'UTF8')
-
-
 # === Настройки из окружения ===
-PG_HOST       = os.getenv("PG_HOST",       "localhost")
-PG_PORT       = os.getenv("PG_PORT",       "5433")
-PG_DB         = os.getenv("PG_DB",         "university")
-PG_USER       = os.getenv("PG_USER",       "admin")
-PG_PASSWORD   = os.getenv("PG_PASSWORD",   "P@ssw0rd")
-
-NEO4J_URI      = os.getenv("NEO4J_URI",      "neo4j://localhost:7687")
-NEO4J_USER     = os.getenv("NEO4J_USER",     "neo4j")
+POSTGRES_DSN   = os.getenv(
+    "POSTGRES_DSN",
+    "postgresql://admin:P%40ssw0rd@localhost:5433/university"
+)
+NEO4J_URI      = os.getenv("NEO4J_URI", "neo4j://localhost:7687")
+NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "P@ssw0rd")
 
 
-def get_pg_connection():
-    """
-    Создаёт соединение с PostgreSQL,
-    без использования URL-DSN, и сразу
-    гарантирует UTF-8 для всeх сообщений.
-    """
-    conn = psycopg2.connect(f"host={PG_HOST} port={PG_PORT} dbname={PG_DB} user={PG_USER} password={PG_PASSWORD}")
-    # на всякий случай ещё раз ставим кодировку клиента
-    conn.set_client_encoding("UTF8")
-    return conn
-
-
 def generate_pg_data():
-    conn = get_pg_connection()
+    conn = psycopg2.connect(dsn=POSTGRES_DSN)
     cur  = conn.cursor()
 
     print("=== Генерация случайных занятий в PostgreSQL ===")
     class_types = ['Лекция', 'Семинар', 'Лабораторная']
     tags        = ['специальная', 'общая']
 
+    # Определяем, с какого class_id начинать
     cur.execute("SELECT COALESCE(MAX(class_id), 0) FROM classes")
     max_class_before = cur.fetchone()[0]
 
+    # Берём все курсы и всех студентов
     cur.execute("SELECT course_id FROM courses")
-    courses = [r[0] for r in cur.fetchall()]
+    courses = [row[0] for row in cur.fetchall()]
     cur.execute("SELECT student_id FROM students")
-    students = [r[0] for r in cur.fetchall()]
+    students = [row[0] for row in cur.fetchall()]
 
+    # Для каждого курса создаём случайное число занятий
     new_classes = []
     for course_id in courses:
-        for i in range(random.randint(8, 15)):
-            ctype    = random.choice(class_types)
-            title    = f"{ctype} по курсу #{course_id}, тема {i+1}"
-            req      = random.choice([
+        n = random.randint(8, 15)  # 8–15 занятий на курс
+        for i in range(1, n + 1):
+            ctype     = random.choice(class_types)
+            title     = f"{ctype} по курсу #{course_id}, тема {i}"
+            req       = random.choice([
                 "Ноутбук, проектор",
                 "Тетрадь, ручка",
                 "Калькулятор, ноутбук",
                 "Учебник, микроскоп"
             ])
-            cls_date = date(2023, 9, 1) + timedelta(days=random.randint(0, 120))
-            duration = 120
-            tag      = random.choice(tags)
+            cls_date  = date(2023, 9, 1) + timedelta(days=random.randint(0, 120))
+            duration  = random.choice([120])
+            tag       = random.choice(tags)
 
             cur.execute(
                 """
@@ -84,13 +66,15 @@ def generate_pg_data():
 
     conn.commit()
 
+    # Получаем ID всех новых classes
     cur.execute(
         "SELECT class_id, title, date FROM classes WHERE class_id > %s",
         (max_class_before,)
     )
     new_classes = cur.fetchall()
-    print(f"Сгенерировано {len(new_classes)} занятий.")
+    print(f"Сгенерировано {len(new_classes)} занятий (всех типов, всех тегов).")
 
+    # === Расписание (shedule) ===
     print("=== Генерация расписаний для новых занятий ===")
     cur.execute("SELECT COALESCE(MAX(shedule_id), 0) FROM shedule")
     max_sch_before = cur.fetchone()[0]
@@ -109,6 +93,7 @@ def generate_pg_data():
 
     conn.commit()
 
+    # === Посещаемость ===
     print("=== Генерация записей о посещении ===")
     for sid in students:
         picked = random.sample(new_schedules, k=random.randint(5, min(len(new_schedules), 10)))
@@ -128,28 +113,36 @@ def generate_pg_data():
     conn.commit()
     cur.close()
     conn.close()
-    print("=== Данные PostgreSQL сгенерированы. ===")
+    print("=== Данные PostgreSQL: классы, расписание и посещения сгенерированы. ===")
 
 
 def generate_more_attendance():
-    conn = get_pg_connection()
+    """
+    Генерирует дополнительные посещения для уже существующих расписаний,
+    чтобы получить неполные показатели посещаемости (не только 0% или 100%).
+    """
+    conn = psycopg2.connect(dsn=POSTGRES_DSN)
     cur  = conn.cursor()
 
-    print("=== Генерация дополнительных посещений ===")
+    print("=== Генерация дополнительных посещений для существующих shedule ===")
+    # Берём все shedule и всех студентов
     cur.execute("SELECT shedule_id FROM shedule")
-    schedule_ids = [r[0] for r in cur.fetchall()]
+    schedule_ids = [row[0] for row in cur.fetchall()]
     cur.execute("SELECT student_id FROM students")
-    student_ids  = [r[0] for r in cur.fetchall()]
+    student_ids  = [row[0] for row in cur.fetchall()]
 
+    # Для каждого сочетания выбираем с вероятностью 50% запись посещения
     for sid in student_ids:
         for sch_id in schedule_ids:
+            # Пропускаем уже существующие записи
             cur.execute(
                 "SELECT 1 FROM attendances WHERE student_id=%s AND shedule_id=%s",
                 (sid, sch_id)
             )
             if cur.fetchone():
                 continue
-            presence   = random.random() < 0.7
+            # Рандомим посещение: True 70%, False 30%
+            presence = random.random() < 0.7
             visit_date = date.today() - timedelta(days=random.randint(0, 30))
             cur.execute(
                 """
@@ -167,11 +160,7 @@ def generate_more_attendance():
 
 def populate_neo4j_from_pg():
     print("=== Загрузка данных в Neo4j ===")
-    conn = psycopg2.connect(host=PG_HOST,
-        port=PG_PORT,
-        dbname=PG_DB,
-        user=PG_USER,
-        password=PG_PASSWORD)
+    conn = psycopg2.connect(dsn=POSTGRES_DSN)
     cur  = conn.cursor()
 
     cur.execute("SELECT group_id, name FROM groups")
@@ -227,11 +216,7 @@ def generate_for_first_group():
     только для первой группы (group_id = 1).
     """
     print("=== Генерация данных только для первой группы (group_id=1) ===")
-    conn = psycopg2.connect(host=PG_HOST,
-        port=PG_PORT,
-        dbname=PG_DB,
-        user=PG_USER,
-        password=PG_PASSWORD)
+    conn = psycopg2.connect(dsn=POSTGRES_DSN)
     cur  = conn.cursor()
 
     # 1) Узнаём spec_id у группы 1
