@@ -146,30 +146,19 @@ async def fetch_classes(pool, course_title, year, semester, requirements=None):
     return classes
 
 async def fetch_student_count(neo4j_driver, class_info) -> int:
-    """
-    Подсчёт всех студентов, принадлежащих группе, для которой в расписании
-    есть указанный курс (независимо от факта посещения).
-    """
+    """Получение количества студентов, посетивших занятие, из Neo4j"""
     logger.info(f"Подсчет студентов для занятия: {class_info['class_title']} ({class_info['date']})")
     
     cypher = """
-        MATCH (s:Student)-[:BELONGS_TO]->(g:Group)-[:HAS_SCHEDULE]->(sch:Schedule {
-            title: $title,
-            date: date($date)
-        })
-        RETURN COUNT(DISTINCT s) AS student_count
+        MATCH (s:Student)-[:ATTENDED]->(sch:Schedule {title: $title, date: date($date)})
+        RETURN COUNT(DISTINCT s) as student_count
     """
     async with neo4j_driver.session() as session:
-        result = await session.run(
-            cypher,
-            title=class_info["class_title"],
-            date=class_info["date"].strftime('%Y-%m-%d')
-        )
+        result = await session.run(cypher, title=class_info["class_title"], date=class_info["date"].strftime('%Y-%m-%d'))
         record = await result.single()
         count = record["student_count"] if record else 0
-        logger.info(f"Найдено {count} студентов для занятия «{class_info['class_title']}»")
+        logger.info(f"Найдено {count} студентов для занятия {class_info['class_title']}")
         return count
-
 
 
 @app.get("/api/course-attendance/{course_title}", response_model=List[CourseReport])
