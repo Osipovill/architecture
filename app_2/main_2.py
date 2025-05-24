@@ -98,7 +98,7 @@ class CourseReport(BaseModel):
     date: str
     duration: int
     requirements: str
-    student_count: int
+    student_count_planned: int
 
 
 async def fetch_classes(pool, course_title, year, semester, requirements=None):
@@ -212,7 +212,7 @@ async def get_course_attendance(
             date=class_info["date"].strftime('%Y-%m-%d'),
             duration=class_info["duration"],
             requirements=class_info["requirements"],
-            student_count=student_count
+            student_count_planned=student_count
         ))
 
     await set_cached_data(app.state.redis, cache_key, [r.model_dump() for r in results])
