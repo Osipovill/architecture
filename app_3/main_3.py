@@ -120,12 +120,19 @@ async def fetch_group_code(pg_pool, group_id: int) -> str:
 
 
 async def fetch_neo4j_planned_hours(driver, group_code: str) -> Dict[Tuple[int, int], Dict]:
+    """
+    Для каждого студента из группы считает запланированные часы
+    (каждое занятие — 2 часа).
+    """
     query = """
     MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
     MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)
-    WHERE sch.type = 'Лекция' AND sch.tag = 'специальная'
-    WITH s, sch.course_id AS course_id, COUNT(sch) * 2 AS planned_hours
-    RETURN s.id AS student_id, course_id, planned_hours
+    WITH
+      s.id            AS student_id,
+      id(sch)         AS course_id,
+      sch.title       AS course_title,
+      COUNT(sch) * 2  AS planned_hours
+    RETURN student_id, course_id, course_title, planned_hours
     """
 
     planned = {}
@@ -135,13 +142,15 @@ async def fetch_neo4j_planned_hours(driver, group_code: str) -> Dict[Tuple[int, 
             async for record in result:
                 key = (record["student_id"], record["course_id"])
                 planned[key] = {
+                    "course_title":  record["course_title"],
                     "planned_hours": record["planned_hours"],
-                    "course_id": record["course_id"]
                 }
     except Exception as e:
         logger.error("Neo4j error: %s", e)
         raise HTTPException(500, "Failed to fetch planned hours")
     return planned
+
+
 
 
 async def fetch_course_titles(pg_pool, course_ids: List[int]) -> Dict[int, str]:
@@ -163,10 +172,12 @@ async def fetch_neo4j_attended_hours(driver, group_code: str) -> Dict[Tuple[int,
     query = """
     MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
     MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)
-    WHERE sch.type = 'Лекция' AND sch.tag = 'специальная'
-    OPTIONAL MATCH (s)-[:ATTENDED]->(sch)
-    WITH s, sch.course_id AS course_id, COUNT(sch) * 2 AS attended_hours
-    RETURN s.id AS student_id, course_id, attended_hours
+    OPTIONAL MATCH (s)-[a:ATTENDED]->(sch)
+    WITH
+      s.id                   AS student_id,
+      id(sch)                AS course_id,
+      COUNT(a) * 2           AS attended_hours
+    RETURN student_id, course_id, attended_hours
     """
 
     attended = {}
@@ -209,33 +220,32 @@ async def get_group_hours(group_id: int = Path(..., ge=1)):
 
     group_code = await fetch_group_code(app.state.db, group_id)
 
-    planned = await fetch_neo4j_planned_hours(app.state.neo4j, group_code)
+    planned   = await fetch_neo4j_planned_hours(app.state.neo4j, group_code)
     if not planned:
         raise HTTPException(404, "No planned lectures found")
 
-    course_ids = list({c_id for (_, c_id) in planned.keys()})
-    course_titles = await fetch_course_titles(app.state.db, course_ids)
+    attended  = await fetch_neo4j_attended_hours(app.state.neo4j, group_code)
+    students  = await fetch_neo4j_students(app.state.neo4j, group_code)
 
-    attended = await fetch_neo4j_attended_hours(app.state.neo4j, group_code)
-    students = await fetch_neo4j_students(app.state.neo4j, group_code)
 
-    # Формируем отчет
-    students_map = {}
+    students_map: Dict[int, StudentInfo] = {}
     for (stu_id, crs_id), data in planned.items():
-        course = CourseInfo(
-            course_id=crs_id,
-            course_title=course_titles.get(crs_id, "Unknown Course"),
-            planned_hours=data["planned_hours"],
-            attended_hours=attended.get((stu_id, crs_id), 0)
-        )
-
-        if stu_id not in students_map:
-            students_map[stu_id] = StudentInfo(
+        info = students_map.setdefault(
+            stu_id,
+            StudentInfo(
                 student_id=stu_id,
                 student_name=students.get(stu_id, "Unknown Student"),
                 courses=[]
             )
-        students_map[stu_id].courses.append(course)
+        )
+        info.courses.append(
+            CourseInfo(
+                course_id      = crs_id,
+                course_title   = data["course_title"],
+                planned_hours  = data["planned_hours"],
+                attended_hours = attended.get((stu_id, crs_id), 0)
+            )
+        )
 
     report = GroupReport(
         group_id=group_id,
