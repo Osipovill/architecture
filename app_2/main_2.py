@@ -17,15 +17,13 @@ import aioredis
 from pypika import Query as PypikaQuery, Table
 
 class CustomJSONEncoder(JSONEncoder):
-    """Кастомный JSON энкодер для сериализации datetime объектов"""
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.isoformat()
         return super().default(obj)
 
-# ----------------- CONFIGURATION -----------------
+
 class Settings(BaseSettings):
-    """Настройки приложения, загружаемые из переменных окружения"""
     postgres_dsn: str = Field(..., env="POSTGRES_DSN")
     redis_dsn: str = Field(..., env="REDIS_DSN")
     neo4j_uri: str = Field(..., env="NEO4J_URI")
@@ -35,11 +33,11 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        extra = "ignore"  # разрешить игнорировать любые доп. ключи из .env
+        extra = "ignore"  
 
 settings = Settings()
 
-# ----------------- LOGGING -----------------
+
 logger = logging.getLogger("app2_service")
 if not logger.handlers:
     log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -49,7 +47,7 @@ if not logger.handlers:
     logger.addHandler(console_handler)
     logger.propagate = False
 
-# ----------------- CACHE -----------------
+
 CACHE_TTL = 60
 
 def generate_cache_key(prefix: str, *args) -> str:
@@ -72,10 +70,9 @@ async def set_cached_data(redis, key: str, data, ttl: int = CACHE_TTL):
     await redis.set(key, json.dumps(data, cls=CustomJSONEncoder), ex=ttl)
     logger.info(f"Cached: {key}, TTL: {ttl}")
 
-# ----------------- LIFESPAN -----------------
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Инициализация при запуске
     logger.info("Запуск сервиса App2...")
     app.state.db = await asyncpg.create_pool(dsn=settings.postgres_dsn)
     app.state.neo4j = AsyncGraphDatabase.driver(
@@ -84,7 +81,6 @@ async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(settings.redis_dsn, decode_responses=True)
     logger.info("Успешное подключение ко всем базам данных")
     yield
-    # Очистка при завершении
     logger.info("Завершение работы сервиса App2...")
     await app.state.db.close()
     await app.state.neo4j.close()
@@ -93,7 +89,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="App2 Service", lifespan=lifespan)
 
-# ----------------- Pydantic Models -----------------
+
 class CourseReport(BaseModel):
     course_title: str
     class_title: str
@@ -104,7 +100,6 @@ class CourseReport(BaseModel):
     requirements: str
     student_count: int
 
-# ----------------- BUSINESS LOGIC -----------------
 
 async def fetch_classes(pool, course_title, year, semester, requirements=None):
     """Получение списка занятий из PostgreSQL с опциональной фильтрацией"""
@@ -165,7 +160,7 @@ async def fetch_student_count(neo4j_driver, class_info) -> int:
         logger.info(f"Найдено {count} студентов для занятия {class_info['class_title']}")
         return count
 
-# ----------------- ROUTES -----------------
+
 @app.get("/api/course-attendance/{course_title}", response_model=List[CourseReport])
 async def get_course_attendance(
     course_title: str, 
@@ -175,16 +170,11 @@ async def get_course_attendance(
 ):
     """
     Генерация отчета о посещаемости курса с опциональной фильтрацией
-    
-    Args:
-        course_title: название курса
-        year: год для фильтрации
-        semester: семестр (1 или 2)
-        requirements: требования для фильтрации
+
     """
     logger.info(f"Генерация отчета о посещаемости для: course_title={course_title}, year={year}, semester={semester}, requirements={requirements}")
 
-    # Проверка кэша
+
     cache_key = generate_cache_key("course_attendance", course_title, year, semester, requirements)
     cached_data = await get_cached_data(app.state.redis, cache_key)
     if cached_data:
@@ -194,13 +184,12 @@ async def get_course_attendance(
     pool = app.state.db
     neo4j_driver = app.state.neo4j
     
-    # Получение списка занятий
+
     classes = await fetch_classes(pool, course_title, year, semester, requirements)
     if not classes:
         logger.warning("Курс или занятия не найдены")
         raise HTTPException(status_code=404, detail="Course or classes not found")
 
-    # Формирование отчета
     results = []
     for class_info in classes:
         student_count = await fetch_student_count(neo4j_driver, class_info)
@@ -215,7 +204,6 @@ async def get_course_attendance(
             student_count=student_count
         ))
 
-    # Кэширование результатов
     await set_cached_data(app.state.redis, cache_key, [r.model_dump() for r in results])
     
     logger.info(f"Отчет успешно сгенерирован: {len(results)} занятий")
