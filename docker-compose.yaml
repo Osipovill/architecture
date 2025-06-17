@@ -41,12 +41,12 @@ services:
       VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
       CONNECT_PLUGIN_PATH: /usr/share/java,\
-                           /usr/share/confluent-hub-components/kafka-plugins
+                           /usr/share/confluent-hub-components
       CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
       CONNECT_REST_PORT: 8083
     volumes:
       - ./connectors:/connectors:ro
-      - ./kafka-plugins:/usr/share/confluent-hub-components/kafka-plugins:ro
+      - ./kafka-plugins:/usr/share/confluent-hub-components:ro
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8083/connectors" ]
       interval: 10s
@@ -59,9 +59,9 @@ services:
       kafka-connect:
         condition: service_healthy
     volumes:
-      - ./connectors:/connectors:ro
-      - ./scripts/register-connectors.sh:/register.sh:ro
-    entrypoint: ["sh", "/register.sh"]
+      - ./connectors:/connectors:ro              # JSON-файлы
+      - ./scripts/register-connectors.sh:/register.sh:ro  # скрипт
+    entrypoint: [ "sh", "/register.sh" ]         # вот главное!
     restart: "no"
 
 
