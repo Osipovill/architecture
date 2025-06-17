@@ -3,13 +3,19 @@
   "config": {
     "connector.class": "com.mongodb.kafka.connect.MongoSinkConnector",
     "tasks.max": "1",
+
     "topics.regex": "university_db\\.public\\..*",
-    "connection.uri": "mongodb://admin:P@ssw0rd@mongodb:27017/university?authSource=admin",
+
+    "connection.uri": "mongodb://admin:P%40ssw0rd@mongodb:27017",
+
     "database": "cdc_archive",
-    "collection": "${topic}",
+    "collection.name.format": "${topic}",     
+
     "key.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
-    "writemodel.strategy": "com.mongodb.kafka.connect.sink.writemodel.strategy.ReplaceOneBusinessKeyStrategy"
+
+    "writemodel.strategy":
+      "com.mongodb.kafka.connect.sink.writemodel.strategy.ReplaceOneBusinessKeyStrategy"
   }
 }
