@@ -1,0 +1,21 @@
+{
+  "name": "neo4j-sink-relations",
+  "config": {
+    "connector.class": "streams.kafka.connect.sink.Neo4jSinkConnector",
+    "tasks.max": "1",
+    "topics": "university_db.public.enrollments",
+    "neo4j.server.uri": "bolt://neo4j:7687",
+    "neo4j.authentication.type": "basic",
+    "neo4j.authentication.basic.username": "neo4j",
+    "neo4j.authentication.basic.password": "P@ssw0rd",
+    "neo4j.topic.cdc.sourceIdStrategy": "TEMPLATE",
+    "neo4j.topic.cdc.sourceIdTemplate": "${after.student_id}-${after.group_id}",
+    "neo4j.topic.cdc.relationship": "ENROLLED_IN",
+    "neo4j.topic.cdc.sourceIdLabel": "Student",
+    "neo4j.topic.cdc.targetIdLabel": "Group",
+    "neo4j.topic.cdc.keys": "student_id,group_id",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}
