@@ -150,7 +150,7 @@ def generate_pg_data():
     new_classes = cur.fetchall()
     print(f"Сгенерировано {len(new_classes)} занятий.")
 
-    generate_materials(conn, new_classes)
+    # generate_materials(conn, new_classes)
 
     print("=== Генерация shedule ===")
     for class_id, title, cls_date in new_classes:
@@ -450,8 +450,8 @@ if __name__ == "__main__":
     generate_students()
     generate_pg_data()
     generate_more_attendance()
-    generate_for_first_group()
-    boost_attendance_for_keyword("введение")
+    # generate_for_first_group()
+    # boost_attendance_for_keyword("введение")
 
-    populate_neo4j_from_pg()
+    # populate_neo4j_from_pg()
     print("=== ВСЁ ГОТОВО: данные «показательные», студентов больше ===")

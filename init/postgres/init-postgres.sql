@@ -239,3 +239,7 @@ INSERT INTO attendances (student_id, shedule_id, presence, date) VALUES
 (7, 4, FALSE,'2023-09-15'),
 (8, 5, TRUE, '2023-09-20'),
 (9, 6, TRUE, '2023-09-25');
+
+
+
+CREATE PUBLICATION pub FOR ALL TABLES;
