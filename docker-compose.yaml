@@ -40,10 +40,13 @@ services:
       KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_PLUGIN_PATH: /usr/share/java,\
+                           /usr/share/confluent-hub-components/kafka-plugins
       CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
       CONNECT_REST_PORT: 8083
     volumes:
       - ./connectors:/connectors:ro
+      - ./kafka-plugins:/usr/share/confluent-hub-components/kafka-plugins:ro
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8083/connectors" ]
       interval: 10s
@@ -57,28 +60,11 @@ services:
         condition: service_healthy
     volumes:
       - ./connectors:/connectors:ro
-    entrypoint: /bin/sh
-    # -------------------------------------------
-    # $  → $$   (иначе docker-compose пытается
-    #           подставить переменные окружения)
-    command: >
-      -c "
-      echo '▶ Registering connectors'; sleep 3;
-      cd /connectors || exit 0;
-      set -- *.json;
-      [ \"$$1\" = '*.json' ] && { echo '⚠  no json found'; exit 0; }
-      for f in \"$$@\"; do
-        name=$${f%.json};
-        echo \"• $$name\";
-        curl -s -o /dev/null -X DELETE http://kafka-connect:8083/connectors/$$name;
-        curl -s -o /dev/null -w '  → HTTP %{http_code}\n' \
-             -X POST -H 'Content-Type: application/json' \
-             --data @\"$$f\" \
-             http://kafka-connect:8083/connectors;
-      done;
-      echo '✔ done';
-      "
+      - ./scripts/register-connectors.sh:/register.sh:ro
+    entrypoint: ["sh", "/register.sh"]
     restart: "no"
+
+
 
 
 
@@ -204,7 +190,7 @@ services:
     command: [ "-c", "apk add --no-cache curl && chmod +x /init/init-es.sh && sleep 3 && sh /init/init-es.sh" ]
 
   postgres:
-    image: quay.io/debezium/postgres:15-alpine
+    image: quay.io/debezium/postgres:16-alpine
     container_name: postgres
     restart: unless-stopped
     environment:

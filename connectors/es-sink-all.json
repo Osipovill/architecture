@@ -1,0 +1,16 @@
+{
+  "name": "es-sink-all",
+  "config": {
+    "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+    "tasks.max": "1",
+    "topics.regex": "university_db\\.public\\..*",
+    "connection.url": "http://elasticsearch:9200",
+    "type.name": "_doc",
+    "key.ignore": "true",
+    "schema.ignore": "true",
+    "transforms": "Unwrap,DropTombstone",
+    "transforms.Unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.DropTombstone.type": "org.apache.kafka.connect.transforms.ValueToKey",
+    "behavior.on.null.values": "delete"
+  }
+}
