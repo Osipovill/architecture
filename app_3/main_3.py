@@ -121,17 +121,16 @@ async def fetch_group_code(pg_pool, group_id: int) -> str:
 
 async def fetch_neo4j_planned_hours(driver, group_code: str) -> Dict[Tuple[int, int], Dict]:
     """
-    Для каждого студента из группы считает запланированные часы
-    (каждое занятие — 2 часа).
+    Считаем запланированные часы для каждого курса (тег = 'специальная').
+    Одна запись расписания = 2 акад. часа.
     """
     query = """
     MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
-    MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)
-    WITH
-      s.id            AS student_id,
-      id(sch)         AS course_id,
-      sch.title       AS course_title,
-      COUNT(sch) * 2  AS planned_hours
+    MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule {tag:'специальная'})
+    WITH  s.id            AS student_id,
+          sch.course_id   AS course_id,
+          sch.course_title AS course_title,
+          COUNT(sch) * 2  AS planned_hours
     RETURN student_id, course_id, course_title, planned_hours
     """
 
@@ -170,14 +169,13 @@ async def fetch_course_titles(pg_pool, course_ids: List[int]) -> Dict[int, str]:
 
 async def fetch_neo4j_attended_hours(driver, group_code: str) -> Dict[Tuple[int, int], int]:
     query = """
-    MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
-    MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)
-    OPTIONAL MATCH (s)-[a:ATTENDED]->(sch)
-    WITH
-      s.id                   AS student_id,
-      id(sch)                AS course_id,
-      COUNT(a) * 2           AS attended_hours
-    RETURN student_id, course_id, attended_hours
+        MATCH (g:Group {code: $group_code})<-[:BELONGS_TO]-(s:Student)
+        MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule {tag:'специальная'})
+        OPTIONAL MATCH (s)-[a:ATTENDED]->(sch)
+        WITH  s.id          AS student_id,
+              sch.course_id AS course_id,
+              COUNT(a) * 2  AS attended_hours
+        RETURN student_id, course_id, attended_hours
     """
 
     attended = {}
