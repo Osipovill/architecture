@@ -1,9 +1,9 @@
 {
-  "name": "neo4j-sink-relations",
+  "name": "neo4j-sink-fullgraph",
   "config": {
     "connector.class": "org.neo4j.connectors.kafka.sink.Neo4jConnector",
     "tasks.max": "1",
-    "topics": "university_db.public.enrollments",
+    "topics": "mirea.public.groups,mirea.public.students,mirea.public.shedule,mirea.public.attendances",
 
     "neo4j.uri": "bolt://neo4j:7687",
     "neo4j.authentication.basic.username": "neo4j",
@@ -14,8 +14,17 @@
     "key.converter.schemas.enable": "false",
     "value.converter.schemas.enable": "false",
 
-    "neo4j.cypher.topic.university_db.public.enrollments":
-      "MERGE (s:Student {student_id: __value.student_id})\nMERGE (g:Group {group_id: __value.group_id})\nMERGE (s)-[:ENROLLED_IN]->(g)",
+    "neo4j.cypher.topic.mirea.public.groups":
+      "MERGE (g:Group {id: __value.group_id}) SET g.code=__value.name",
+
+    "neo4j.cypher.topic.mirea.public.students":
+      "MATCH (g:Group {id: __value.group_id})\nMERGE (s:Student {id: __value.student_id}) SET s.name=__value.full_name\nMERGE (s)-[:BELONGS_TO]->(g)",
+
+    "neo4j.cypher.topic.mirea.public.shedule":
+      "MERGE (sch:Schedule {id: __value.shedule_id})\nON CREATE SET sch.title=__value.title, sch.date=date(__value.start_time), sch.duration=__value.duration, sch.course_id=__value.course_id, sch.course_title=__value.course_title, sch.tag=__value.tag\nWITH sch\nMATCH (g:Group {id: __value.group_id})\nMERGE (g)-[:HAS_SCHEDULE]->(sch)",
+
+    "neo4j.cypher.topic.mirea.public.attendances":
+      "MATCH (s:Student {id: __value.student_id}), (sch:Schedule {id: __value.shedule_id})\nMERGE (s)-[:ATTENDED]->(sch)",
 
     "neo4j.batch.size": "500"
   }

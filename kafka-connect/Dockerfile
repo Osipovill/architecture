@@ -10,5 +10,7 @@ RUN confluent-hub install --no-prompt \
   && confluent-hub install --no-prompt \
       jcustenborder/kafka-connect-redis:0.0.8 \
   && confluent-hub install --no-prompt \
-      neo4j/kafka-connect-neo4j:5.1.12
+      neo4j/kafka-connect-neo4j:5.1.12 \
+  && confluent-hub install --no-prompt \
+      debezium/debezium-connector-postgresql:2.5.4
 
