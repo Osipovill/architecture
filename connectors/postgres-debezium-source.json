@@ -11,8 +11,8 @@
     "database.password": "P@ssw0rd",
     "database.dbname": "university",
 
-    "topic.prefix": "mirea",
-    "table.include.list": "public.groups,public.students,public.shedule,public.attendances",
+    "topic.prefix": "university_db",
+    "table.include.list": "public.groups,public.students,public.schedule_full,public.attendances,public.materials",
     "slot.name": "debezium_slot",
 
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",

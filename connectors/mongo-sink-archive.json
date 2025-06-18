@@ -1,21 +1,24 @@
+
 {
   "name": "mongo-sink-archive",
   "config": {
     "connector.class": "com.mongodb.kafka.connect.MongoSinkConnector",
     "tasks.max": "1",
-
     "topics.regex": "university_db\\.public\\..*",
-
     "connection.uri": "mongodb://admin:P%40ssw0rd@mongodb:27017",
-
-    "database": "cdc_archive",
+    "database": "university",
     "collection.name.format": "${topic}",     
 
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "key.converter":   "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable":   "false",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
 
-    "writemodel.strategy":
-      "com.mongodb.kafka.connect.sink.writemodel.strategy.ReplaceOneBusinessKeyStrategy"
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": "true",
+    "transforms.unwrap.delete.handling.mode": "rewrite",
+
+    "document.id.strategy": "com.mongodb.kafka.connect.sink.processor.id.strategy.FullKeyStrategy"
   }
 }

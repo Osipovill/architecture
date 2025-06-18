@@ -6,14 +6,16 @@
     "topics": "university_db.public.students",
     "redis.hosts": "redis:6379",
     "redis.database": "0",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+
+    "key.converter":   "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable":   "false",
+    "value.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter.schemas.enable": "false",
-    "transforms": "ExtractId,AddPrefix",
-    "transforms.ExtractId.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
-    "transforms.ExtractId.field": "student_id",
-    "transforms.AddPrefix.type": "org.apache.kafka.connect.transforms.RegexRouter",
-    "transforms.AddPrefix.regex": "^(.*)$",
-    "transforms.AddPrefix.replacement": "student:$1"
+
+    "transforms": "ExtractKey,CastKey",
+    "transforms.ExtractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.ExtractKey.field": "student_id",
+    "transforms.CastKey.type": "org.apache.kafka.connect.transforms.Cast$Key",
+    "transforms.CastKey.spec": "string"
   }
 }
