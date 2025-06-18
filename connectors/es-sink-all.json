@@ -1,21 +1,31 @@
 {
-  "name": "es-sink-all",
+  "name": "es-sink-materials",
   "config": {
     "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
     "tasks.max": "1",
 
-    "topics.regex": "university_db\\.public\\..*",
+    "topics": "university_db.public.materials",
     "connection.url": "http://elasticsearch:9200",
 
     "key.converter":   "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable":   "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
 
-    "key.ignore":        "false",
-    "type.name":         "doc",
+    "schema.ignore": "true",
     "behavior.on.null.values": "delete",
 
-    "schema.ignore": "true"
+    "type.name": "_doc",
+    "key.ignore": "false",
+
+    "transforms": "ExtractKey,CastKey,RouteToIndex",
+    "transforms.ExtractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.ExtractKey.field": "material_id",
+    "transforms.CastKey.type": "org.apache.kafka.connect.transforms.Cast$Key",
+    "transforms.CastKey.spec": "string",
+
+    "transforms.RouteToIndex.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.RouteToIndex.regex": "university_db\\.public\\.materials",
+    "transforms.RouteToIndex.replacement": "materials"
   }
 }
