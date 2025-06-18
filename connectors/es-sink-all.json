@@ -7,10 +7,15 @@
     "topics.regex": "university_db\\.public\\..*",
     "connection.url": "http://elasticsearch:9200",
 
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "key.converter":   "org.apache.kafka.connect.json.JsonConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable":   "false",
     "value.converter.schemas.enable": "false",
 
-    "behavior.on.null.values": "delete"
+    "key.ignore":        "false",
+    "type.name":         "doc",
+    "behavior.on.null.values": "delete",
+
+    "schema.ignore": "true"
   }
 }

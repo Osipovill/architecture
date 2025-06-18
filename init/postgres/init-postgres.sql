@@ -94,6 +94,23 @@ CREATE TABLE attendances (
   PRIMARY KEY (student_id, shedule_id)
 );
 
+CREATE OR REPLACE VIEW shedule_full AS
+SELECT
+  sh.shedule_id,
+  sh.title,
+  sh.start_time,
+  cl.duration,
+  g.group_id,
+  c.course_id,
+  c.title      AS course_title,
+  cl.tag
+FROM shedule AS sh
+JOIN classes     AS cl  ON cl.class_id   = sh.class_id
+JOIN courses     AS c   ON c.course_id   = cl.course_id
+JOIN specialties AS sp  ON sp.spec_id    = c.spec_id
+JOIN groups      AS g   ON g.spec_id     = sp.spec_id;
+
+
 -- Заполнение данными
 
 -- 10 университетов
