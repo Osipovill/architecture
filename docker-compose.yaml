@@ -28,25 +28,33 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
 
   kafka-connect:
-    image: debezium/connect:2.5
+    build:
+      context: ./kafka-connect
+      dockerfile: Dockerfile
+    image: custom-kafka-connect:7.5.3
     depends_on: [ kafka ]
     ports: [ "8083:8083" ]
     environment:
-      BOOTSTRAP_SERVERS: kafka:29092
-      GROUP_ID: 1
-      CONFIG_STORAGE_TOPIC: connect-configs
-      OFFSET_STORAGE_TOPIC: connect-offsets
-      STATUS_STORAGE_TOPIC: connect-status
-      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
-      CONNECT_PLUGIN_PATH: /usr/share/java,\
-                           /usr/share/confluent-hub-components
+      # обязательные CONNECT_*
+      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_GROUP_ID: "1"
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+
+      # конвертеры
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+
+      # плагины
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+
+      # REST
       CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
       CONNECT_REST_PORT: 8083
     volumes:
       - ./connectors:/connectors:ro
-      - ./kafka-plugins:/usr/share/confluent-hub-components:ro
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8083/connectors" ]
       interval: 10s
@@ -54,14 +62,20 @@ services:
       retries: 10
 
   init-connect:
-    image: curlimages/curl:8.7.1
+    image: alpine:3.17
     depends_on:
       kafka-connect:
         condition: service_healthy
     volumes:
       - ./connectors:/connectors:ro              # JSON-файлы
       - ./scripts/register-connectors.sh:/register.sh:ro  # скрипт
-    entrypoint: [ "sh", "/register.sh" ]         # вот главное!
+    entrypoint:
+      - sh
+      - -c
+      - |
+        # сначала ставим curl и util-linux (для column), затем запускаем скрипт
+        apk add --no-cache curl util-linux \
+          && sh /register.sh         
     restart: "no"
 
 
