@@ -38,13 +38,19 @@ services:
       # обязательные CONNECT_*
       CONNECT_BOOTSTRAP_SERVERS: kafka:29092
       CONNECT_GROUP_ID: "1"
+
+      # внутренние топики и их replication.factor=1
       CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
       CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
       CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
 
       # конвертеры
       CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
       CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
 
       # плагины
@@ -59,7 +65,6 @@ services:
       test: [ "CMD", "curl", "-f", "http://localhost:8083/connectors" ]
       interval: 10s
       timeout: 5s
-      retries: 10
 
   init-connect:
     image: alpine:3.17
