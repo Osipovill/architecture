@@ -11,3 +11,4 @@ RUN confluent-hub install --no-prompt \
       jcustenborder/kafka-connect-redis:0.0.8 \
   && confluent-hub install --no-prompt \
       neo4j/kafka-connect-neo4j:5.1.12
+

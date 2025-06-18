@@ -3,18 +3,14 @@
   "config": {
     "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
     "tasks.max": "1",
+
     "topics.regex": "university_db\\.public\\..*",
     "connection.url": "http://elasticsearch:9200",
+
     "key.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
-    "key.ignore": "true",
-    "behavior.on.null.values": "delete",
-    "transforms": "unwrap",
-    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-    "transforms.unwrap.drop.tombstones": "true",
-    "transforms.unwrap.delete.handling.mode": "drop",
-    "flush.synchronously": "true",
-    "max.retries": "10"
+
+    "behavior.on.null.values": "delete"
   }
 }
