@@ -1,15 +1,22 @@
 {
   "name": "neo4j-sink-relations",
   "config": {
-    "connector.class": "streams.kafka.connect.sink.Neo4jSinkConnector",
+    "connector.class": "org.neo4j.connectors.kafka.sink.Neo4jConnector",
     "tasks.max": "1",
     "topics": "university_db.public.enrollments",
-    "neo4j.connection.uri": "bolt://neo4j:7687",
+
+    "neo4j.uri": "bolt://neo4j:7687",
     "neo4j.authentication.basic.username": "neo4j",
     "neo4j.authentication.basic.password": "P@ssw0rd",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
     "value.converter.schemas.enable": "false",
-    "neo4j.sink.topic.enrollments.cypher": "MERGE (s:Student {student_id: event.payload.student_id})\\nMERGE (g:Group {group_id: event.payload.group_id})\\nMERGE (s)-[:ENROLLED_IN]->(g)",
-    "neo4j.sink.max.batch.size": "500"
+
+    "neo4j.cypher.topic.university_db.public.enrollments":
+      "MERGE (s:Student {student_id: __value.student_id})\nMERGE (g:Group {group_id: __value.group_id})\nMERGE (s)-[:ENROLLED_IN]->(g)",
+
+    "neo4j.batch.size": "500"
   }
 }
