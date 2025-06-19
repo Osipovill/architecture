@@ -165,43 +165,60 @@ async def fetch_attendance(
     return {r["student_id"]: (r["attended_cnt"], r["total_cnt"]) for r in rows}
 
 
-async def fetch_student_details(pool, mongo, student_ids: list[int]) -> dict[int, dict]:
-    """Получение информации о студентах из базы данных"""
-    s = Table('students')
-    g = Table('groups')
-    sp = Table('specialties')
+async def fetch_student_details(pool, mongo, redis, student_ids: list[int]) -> dict[int, dict]:
+    """Получение информации о студентах"""
+    details: dict[int, dict] = {}
+    missed_ids: list[int] = []
 
-    q = (
-        PypikaQuery
-        .from_(s)
-        .join(g).on(s.group_id == g.group_id)
-        .join(sp).on(g.spec_id == sp.spec_id)
-        .select(
-            s.student_id,
-            s.code,
-            s.full_name,
-            g.name.as_('group_name'),
-            sp.name.as_('specialty'),
-            sp.dept_id.as_('dept_id')    
+    # 1) Разом забираем из Redis всё
+    raw_values = await redis.mget(*[str(sid) for sid in student_ids])
+    for sid, raw in zip(student_ids, raw_values):
+        if raw:
+            logger.info(f"Cache hit: sid {sid} of {student_ids}")
+            msg = json.loads(raw)
+            after = msg.get("after", {})
+            details[sid] = {
+                "code":      after.get("code", ""),
+                "full_name": after.get("full_name", ""),
+                "group":     after.get("group_name", ""),
+                "specialty": after.get("specialty", ""),
+                "dept_id":   after.get("dept_id", None)
+            }
+        else:
+            logger.info(f"Cache miss: sid {sid} of {student_ids}")
+            missed_ids.append(sid)
+
+    # 2) Для тех, кого нет в Redis, подгружаем из Postgres
+    if missed_ids:
+        s, g, sp = Table('students'), Table('groups'), Table('specialties')
+        q = (
+            PypikaQuery
+            .from_(s)
+            .join(g).on(s.group_id == g.group_id)
+            .join(sp).on(g.spec_id == sp.spec_id)
+            .select(
+                s.student_id,
+                s.code,
+                s.full_name,
+                g.name.as_('group_name'),
+                sp.name.as_('specialty'),
+                sp.dept_id.as_('dept_id')
+            )
+            .where(s.student_id.isin(missed_ids))
         )
-        .where(s.student_id.isin(student_ids))
-    )
-    sql = q.get_sql()
-    rows = await pool.fetch(sql)
-    details = {}
-    dept_ids = set()
-    for r in rows:
-        sid = r['student_id']
-        did = r['dept_id']
-        details[sid] = {
-            "code":       r["code"],
-            "full_name":  r["full_name"],
-            "group":      r["group_name"],
-            "specialty":  r["specialty"],
-            "dept_id":    did  
-        }
-        dept_ids.add(did)
+        rows = await pool.fetch(q.get_sql())
+        for r in rows:
+            sid = r['student_id']
+            details[sid] = {
+                "code":      r["code"],
+                "full_name": r["full_name"],
+                "group":     r["group_name"],
+                "specialty": r["specialty"],
+                "dept_id":   r["dept_id"]
+            }
 
+    # 3) Собираем все dept_id, чтобы получить имена кафедр из Mongo
+    dept_ids = {info["dept_id"] for info in details.values() if info.get("dept_id") is not None}
     if not dept_ids:
         return {sid: {**v, "department": ""} for sid, v in details.items()}
 
@@ -226,6 +243,18 @@ async def fetch_student_details(pool, mongo, student_ids: list[int]) -> dict[int
         info["department"] = dept_map.get(info["dept_id"], "")
         del info["dept_id"]
 
+        if sid in missed_ids:
+            await redis.set(
+                str(sid),
+                json.dumps({
+                    "code": info["code"],
+                    "full_name": info["full_name"],
+                    "group": info["group"],
+                    "specialty": info["specialty"],
+                    "department": info["department"],
+                }, cls=CustomJSONEncoder),
+                ex=CACHE_TTL
+            )
     return details
 
 @app.get("/report", response_model=ReportResponse)
@@ -269,7 +298,7 @@ async def generate_report(
     logger.info(" Top 10 student_ids: %s", student_ids)
 
     # 5. Детали студентов
-    details = await fetch_student_details(app.state.db, app.state.mongo, student_ids)
+    details = await fetch_student_details(app.state.db, app.state.mongo, app.state.redis, student_ids)
 
     # 6. Формирование отчёта
     report_students = []
