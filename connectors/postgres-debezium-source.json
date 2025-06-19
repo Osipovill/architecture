@@ -12,7 +12,7 @@
     "database.dbname": "university",
 
     "topic.prefix": "university_db",
-    "table.include.list": "public.groups,public.students,public.schedule_full,public.attendances,public.materials",
+    "table.include.list": "public.students_full,public.groups,public.students,public.schedule_full,public.attendances,public.materials",
     "slot.name": "debezium_slot",
 
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
