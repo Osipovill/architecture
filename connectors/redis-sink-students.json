@@ -3,7 +3,7 @@
   "config": {
     "connector.class": "com.github.jcustenborder.kafka.connect.redis.RedisSinkConnector",
     "tasks.max": "1",
-    "topics": "university_db.public.students",
+    "topics": "university_db.public.students_full",
     "redis.hosts": "redis:6379",
     "redis.database": "0",
 

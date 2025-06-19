@@ -257,6 +257,134 @@ INSERT INTO attendances (student_id, shedule_id, presence, date) VALUES
 (8, 5, TRUE, '2023-09-20'),
 (9, 6, TRUE, '2023-09-25');
 
+DROP TABLE IF EXISTS students_full CASCADE;
+
+CREATE TABLE students_full (
+    student_id INT PRIMARY KEY,
+    code VARCHAR(20),
+    full_name TEXT,
+    group_name TEXT,
+    specialty TEXT,
+    dept_id INT
+);
+
+INSERT INTO public.students_full (student_id, code, full_name, group_name, specialty, dept_id)
+SELECT
+    s.student_id,
+    s.code,
+    s.full_name,
+    g.name,
+    sp.name,
+    sp.dept_id
+FROM students s
+JOIN groups g ON s.group_id = g.group_id
+JOIN specialties sp ON g.spec_id = sp.spec_id;
+
+-- INSERT/UPDATE
+CREATE OR REPLACE FUNCTION sync_students_full_from_students()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+        -- Сначала удаляем старое, если есть
+        DELETE FROM students_full WHERE student_id = NEW.student_id;
+        -- Вставляем новое
+        INSERT INTO students_full (student_id, code, full_name, group_name, specialty, dept_id)
+        SELECT
+            NEW.student_id,
+            NEW.code,
+            NEW.full_name,
+            g.name,
+            sp.name,
+            sp.dept_id
+        FROM groups g
+        JOIN specialties sp ON g.spec_id = sp.spec_id
+        WHERE g.group_id = NEW.group_id;
+        RETURN NEW;
+    ELSIF (TG_OP = 'DELETE') THEN
+        DELETE FROM students_full WHERE student_id = OLD.student_id;
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_students_full_from_students ON students;
+CREATE TRIGGER trg_students_full_from_students
+AFTER INSERT OR UPDATE OR DELETE ON students
+FOR EACH ROW
+EXECUTE FUNCTION sync_students_full_from_students();
+
+CREATE OR REPLACE FUNCTION sync_students_full_from_groups()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'UPDATE') THEN
+        -- Обновляем group_name, specialty и dept_id во всех students_full, связанных с этой группой
+        UPDATE students_full sf
+        SET
+            group_name = NEW.name,
+            specialty = sp.name,
+            dept_id = sp.dept_id
+        FROM students s
+        JOIN specialties sp ON NEW.spec_id = sp.spec_id
+        WHERE sf.student_id = s.student_id
+          AND s.group_id = NEW.group_id;
+        RETURN NEW;
+    ELSIF (TG_OP = 'DELETE') THEN
+        -- Удаляем всех студентов этой группы из students_full
+        DELETE FROM students_full sf
+        USING students s
+        WHERE sf.student_id = s.student_id
+          AND s.group_id = OLD.group_id;
+        RETURN OLD;
+    ELSIF (TG_OP = 'INSERT') THEN
+        -- Нет прямого действия — ведь нет студентов у новой группы
+        RETURN NEW;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_students_full_from_groups ON groups;
+CREATE TRIGGER trg_students_full_from_groups
+AFTER INSERT OR UPDATE OR DELETE ON groups
+FOR EACH ROW
+EXECUTE FUNCTION sync_students_full_from_groups();
+
+CREATE OR REPLACE FUNCTION sync_students_full_from_specialties()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'UPDATE') THEN
+        -- Обновляем specialty и dept_id у всех студентов этой специальности
+        UPDATE students_full sf
+        SET
+            specialty = NEW.name,
+            dept_id = NEW.dept_id
+        FROM students s
+        JOIN groups g ON s.group_id = g.group_id
+        WHERE sf.student_id = s.student_id
+          AND g.spec_id = NEW.spec_id;
+        RETURN NEW;
+    ELSIF (TG_OP = 'DELETE') THEN
+        -- Удаляем всех студентов, связанных с этой specialty
+        DELETE FROM students_full sf
+        USING students s
+        JOIN groups g ON s.group_id = g.group_id
+        WHERE sf.student_id = s.student_id
+          AND g.spec_id = OLD.spec_id;
+        RETURN OLD;
+    ELSIF (TG_OP = 'INSERT') THEN
+        -- Нет прямого действия
+        RETURN NEW;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_students_full_from_specialties ON specialties;
+CREATE TRIGGER trg_students_full_from_specialties
+AFTER INSERT OR UPDATE OR DELETE ON specialties
+FOR EACH ROW
+EXECUTE FUNCTION sync_students_full_from_specialties();
 
 
 CREATE PUBLICATION pub FOR ALL TABLES;
