@@ -123,6 +123,7 @@ async def fetch_lecture_ids(es, pool, term: str, start: str, end: str) -> set[in
         query = {"query": {"match": {"content": term}}}
         resp = await es.search(index="materials", body=query, size=1000)
         class_ids = [int(hit["_source"]["class_id"]) for hit in resp["hits"]["hits"]]
+        logger.info(f"class ids: {class_ids}")
         if not class_ids:
             return None
         await set_cached_data(app.state.redis, es_cache_key, class_ids)

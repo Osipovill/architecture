@@ -7,8 +7,8 @@
     "topics": "university_db.public.materials",
     "connection.url": "http://elasticsearch:9200",
 
-    "key.converter":   "org.apache.kafka.connect.json.JsonConverter",
-    "key.converter.schemas.enable":   "false",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
 
@@ -18,11 +18,19 @@
     "type.name": "_doc",
     "key.ignore": "false",
 
-    "transforms": "ExtractKey,CastKey,RouteToIndex",
+    "transforms": "ExtractKey,CastKey,ExtractAfter,DropDebeziumMeta,RouteToIndex",
+
     "transforms.ExtractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
     "transforms.ExtractKey.field": "material_id",
+
     "transforms.CastKey.type": "org.apache.kafka.connect.transforms.Cast$Key",
     "transforms.CastKey.spec": "string",
+
+    "transforms.ExtractAfter.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
+    "transforms.ExtractAfter.field": "after",
+
+    "transforms.DropDebeziumMeta.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms.DropDebeziumMeta.blacklist": "op,source,ts_ms,transaction,before",
 
     "transforms.RouteToIndex.type": "org.apache.kafka.connect.transforms.RegexRouter",
     "transforms.RouteToIndex.regex": "university_db\\.public\\.materials",
