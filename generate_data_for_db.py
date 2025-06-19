@@ -453,5 +453,5 @@ if __name__ == "__main__":
     generate_for_first_group()
     boost_attendance_for_keyword("введение")
 
-    populate_neo4j_from_pg()
+    # populate_neo4j_from_pg()
     print("=== ВСЁ ГОТОВО: данные «показательные», студентов больше ===")

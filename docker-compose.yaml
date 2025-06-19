@@ -168,6 +168,25 @@ services:
             "
     restart: on-failure
 
+  neo4j_cdc:
+    build:
+      context: ./neo4j_cdc
+      dockerfile: Dockerfile
+    image: neo4j-cdc:latest
+    container_name: neo4j_cdc
+    depends_on:
+      kafka:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:29092
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=P@ssw0rd
+
   neo4j:
     image: neo4j:5.16-community
     container_name: neo4j
