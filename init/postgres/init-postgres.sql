@@ -386,5 +386,200 @@ AFTER INSERT OR UPDATE OR DELETE ON specialties
 FOR EACH ROW
 EXECUTE FUNCTION sync_students_full_from_specialties();
 
+-- Создание materialized-аналога shedule_full
+DROP TABLE IF EXISTS shedule_full_materialized;
+CREATE TABLE shedule_full_materialized (
+    shedule_id INT PRIMARY KEY,
+    title TEXT,
+    start_time DATE,
+    duration INT,
+    group_id INT,
+    course_id INT,
+    course_title TEXT,
+    tag TEXT
+);
+
+-- Инициализация данными
+INSERT INTO shedule_full_materialized
+SELECT
+    sh.shedule_id,
+    sh.title,
+    sh.start_time,
+    cl.duration,
+    g.group_id,
+    c.course_id,
+    c.title,
+    cl.tag
+FROM shedule AS sh
+JOIN classes cl ON cl.class_id = sh.class_id
+JOIN courses c ON c.course_id = cl.course_id
+JOIN specialties sp ON sp.spec_id = c.spec_id
+JOIN groups g ON g.spec_id = sp.spec_id;
+
+-- Функция и триггер для shedule
+CREATE OR REPLACE FUNCTION sync_shedule_full_from_shedule()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM shedule_full_materialized WHERE shedule_id = NEW.shedule_id;
+    INSERT INTO shedule_full_materialized
+    SELECT
+        sh.shedule_id,
+        sh.title,
+        sh.start_time,
+        cl.duration,
+        g.group_id,
+        c.course_id,
+        c.title,
+        cl.tag
+    FROM shedule sh
+    JOIN classes cl ON cl.class_id = sh.class_id
+    JOIN courses c ON c.course_id = cl.course_id
+    JOIN specialties sp ON sp.spec_id = c.spec_id
+    JOIN groups g ON g.spec_id = sp.spec_id
+    WHERE sh.shedule_id = NEW.shedule_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_shedule_full_from_shedule ON shedule;
+CREATE TRIGGER trg_shedule_full_from_shedule
+AFTER INSERT OR UPDATE ON shedule
+FOR EACH ROW
+EXECUTE FUNCTION sync_shedule_full_from_shedule();
+
+-- Аналогичные функции для classes, courses, specialties, groups
+
+CREATE OR REPLACE FUNCTION sync_shedule_full_on_class_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM shedule_full_materialized
+    USING shedule sh
+    WHERE sh.class_id = NEW.class_id AND shedule_full_materialized.shedule_id = sh.shedule_id;
+
+    INSERT INTO shedule_full_materialized
+    SELECT
+        sh.shedule_id,
+        sh.title,
+        sh.start_time,
+        cl.duration,
+        g.group_id,
+        c.course_id,
+        c.title,
+        cl.tag
+    FROM shedule sh
+    JOIN classes cl ON cl.class_id = sh.class_id
+    JOIN courses c ON c.course_id = cl.course_id
+    JOIN specialties sp ON sp.spec_id = c.spec_id
+    JOIN groups g ON g.spec_id = sp.spec_id
+    WHERE sh.class_id = NEW.class_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_shedule_full_on_class_change ON classes;
+CREATE TRIGGER trg_shedule_full_on_class_change
+AFTER UPDATE ON classes
+FOR EACH ROW
+EXECUTE FUNCTION sync_shedule_full_on_class_change();
+
+CREATE OR REPLACE FUNCTION sync_shedule_full_on_course_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM shedule_full_materialized
+    USING shedule sh, classes cl
+    WHERE cl.course_id = NEW.course_id AND cl.class_id = sh.class_id AND shedule_full_materialized.shedule_id = sh.shedule_id;
+
+    INSERT INTO shedule_full_materialized
+    SELECT
+        sh.shedule_id,
+        sh.title,
+        sh.start_time,
+        cl.duration,
+        g.group_id,
+        c.course_id,
+        c.title,
+        cl.tag
+    FROM shedule sh
+    JOIN classes cl ON cl.class_id = sh.class_id
+    JOIN courses c ON c.course_id = cl.course_id
+    JOIN specialties sp ON sp.spec_id = c.spec_id
+    JOIN groups g ON g.spec_id = sp.spec_id
+    WHERE c.course_id = NEW.course_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_shedule_full_on_course_change ON courses;
+CREATE TRIGGER trg_shedule_full_on_course_change
+AFTER UPDATE ON courses
+FOR EACH ROW
+EXECUTE FUNCTION sync_shedule_full_on_course_change();
+
+CREATE OR REPLACE FUNCTION sync_shedule_full_on_specialty_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM shedule_full_materialized
+    USING shedule sh, classes cl, courses c
+    WHERE c.spec_id = NEW.spec_id AND c.course_id = cl.course_id AND cl.class_id = sh.class_id AND shedule_full_materialized.shedule_id = sh.shedule_id;
+
+    INSERT INTO shedule_full_materialized
+    SELECT
+        sh.shedule_id,
+        sh.title,
+        sh.start_time,
+        cl.duration,
+        g.group_id,
+        c.course_id,
+        c.title,
+        cl.tag
+    FROM shedule sh
+    JOIN classes cl ON cl.class_id = sh.class_id
+    JOIN courses c ON c.course_id = cl.course_id
+    JOIN specialties sp ON sp.spec_id = c.spec_id
+    JOIN groups g ON g.spec_id = sp.spec_id
+    WHERE sp.spec_id = NEW.spec_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_shedule_full_on_specialty_change ON specialties;
+CREATE TRIGGER trg_shedule_full_on_specialty_change
+AFTER UPDATE ON specialties
+FOR EACH ROW
+EXECUTE FUNCTION sync_shedule_full_on_specialty_change();
+
+CREATE OR REPLACE FUNCTION sync_shedule_full_on_group_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM shedule_full_materialized
+    USING shedule sh, classes cl, courses c, specialties sp
+    WHERE g.spec_id = sp.spec_id AND c.spec_id = sp.spec_id AND c.course_id = cl.course_id AND cl.class_id = sh.class_id AND shedule_full_materialized.shedule_id = sh.shedule_id AND g.group_id = NEW.group_id;
+
+    INSERT INTO shedule_full_materialized
+    SELECT
+        sh.shedule_id,
+        sh.title,
+        sh.start_time,
+        cl.duration,
+        g.group_id,
+        c.course_id,
+        c.title,
+        cl.tag
+    FROM shedule sh
+    JOIN classes cl ON cl.class_id = sh.class_id
+    JOIN courses c ON c.course_id = cl.course_id
+    JOIN specialties sp ON sp.spec_id = c.spec_id
+    JOIN groups g ON g.spec_id = sp.spec_id
+    WHERE g.group_id = NEW.group_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_shedule_full_on_group_change ON groups;
+CREATE TRIGGER trg_shedule_full_on_group_change
+AFTER UPDATE ON groups
+FOR EACH ROW
+EXECUTE FUNCTION sync_shedule_full_on_group_change();
+
 
 CREATE PUBLICATION pub FOR ALL TABLES;
