@@ -133,7 +133,24 @@ services:
       interval: 15s
       timeout: 10s
       retries: 3
-    
+
+
+  cdc-hierarchy:
+    build:
+      context: ./mongo_cdc
+      dockerfile: Dockerfile
+    image: cdc-hierarchy:latest
+    container_name: cdc-hierarchy
+    depends_on:
+      kafka:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:29092
+      - MONGO_URI=mongodb://admin:P%40ssw0rd@mongodb:27017/university?authSource=admin
 
   mongo-init:
     image: mongo:7.0

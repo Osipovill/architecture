@@ -101,6 +101,7 @@ class StudentReport(BaseModel):
     group: str
     specialty: str
     department: str
+    institute: str
     attendance_percent: float
 
 class ReportResponse(BaseModel):
@@ -224,37 +225,31 @@ async def fetch_student_details(pool, mongo, redis, student_ids: list[int]) -> d
 
     # 2) Из MongoDB получаем названия кафедр по dept_id
     pipeline = [
-        { "$unwind": "$institutes" },
-        { "$unwind": "$institutes.departments" },
-        { "$match": { "institutes.departments.department_id": { "$in": list(dept_ids) } } },
-        { "$project": {
+        {"$unwind": "$institutes"},
+        {"$unwind": "$institutes.departments"},
+        {"$match": {
+            "institutes.departments.department_id": {"$in": list(dept_ids)}
+        }},
+        {"$project": {
             "_id": 0,
             "department_id": "$institutes.departments.department_id",
-            "department_name": "$institutes.departments.name"
-        } }
+            "department_name": "$institutes.departments.name",
+            "institute_id": "$institutes.institute_id",
+            "institute_name": "$institutes.name"
+        }}
     ]
     cursor = mongo.universities.aggregate(pipeline)
     docs = await cursor.to_list(length=None)
 
-    dept_map = { doc["department_id"]: doc["department_name"] for doc in docs }
+    dept_map = {d["department_id"]: d["department_name"] for d in docs}
+    inst_map = {d["department_id"]: d["institute_name"] for d in docs}
 
-    # 3) Вкладываем department_name в детали и убираем dept_id
-    for sid, info in details.items():
-        info["department"] = dept_map.get(info["dept_id"], "")
-        del info["dept_id"]
 
-        if sid in missed_ids:
-            await redis.set(
-                str(sid),
-                json.dumps({
-                    "code": info["code"],
-                    "full_name": info["full_name"],
-                    "group": info["group"],
-                    "specialty": info["specialty"],
-                    "department": info["department"],
-                }, cls=CustomJSONEncoder),
-                ex=CACHE_TTL
-            )
+    for sid, rec in details.items():
+        did = rec.pop("dept_id", None)
+        rec["department"] = dept_map.get(did, "")
+        rec["institute"] = inst_map.get(did, "")
+
     return details
 
 @app.get("/report", response_model=ReportResponse)
@@ -312,6 +307,7 @@ async def generate_report(
                 group=det.get("group", ""),
                 specialty=det.get("specialty", ""),
                 department=det.get("department", ""),
+                institute=det.get("institute", ""),
                 attendance_percent=round(pct, 2)
             )
         )
