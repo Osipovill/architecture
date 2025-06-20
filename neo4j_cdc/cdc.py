@@ -6,7 +6,7 @@ from aiokafka import AIOKafkaConsumer
 from neo4j import AsyncGraphDatabase
 from dotenv import load_dotenv
 
-load_dotenv()  # если используешь .env
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("neo4j_cdc")
@@ -16,7 +16,7 @@ pending_students: dict[int, dict] = {}
 pending_schedules: dict[int, dict] = {}
 pending_att: dict[int, list[dict]] = {}
 
-# Kafka
+
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:29092")
 KAFKA_GROUP_ID  = "neo4j_hierarchy_group"
 KAFKA_TOPICS    = [
@@ -26,7 +26,6 @@ KAFKA_TOPICS    = [
     "university_db.public.attendances",
 ]
 
-# Neo4j
 NEO4J_URI      = os.getenv("NEO4J_URI", "neo4j://neo4j:7687")
 NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "P@ssw0rd")
@@ -135,8 +134,6 @@ async def handle_schedule(session, after):
     )
     logger.info(f"Schedule upserted: {sid}")
 
-    # если для этого занятия были buffered attendances — можно сбросить их
-    # (если буферифвали по schedule_id — тут бы был аналогичный flush)
 
 async def handle_schedule_delete(session, before):
     await session.run(
