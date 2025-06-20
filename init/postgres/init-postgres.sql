@@ -552,8 +552,19 @@ CREATE OR REPLACE FUNCTION sync_shedule_full_on_group_change()
 RETURNS TRIGGER AS $$
 BEGIN
     DELETE FROM shedule_full_materialized
-    USING shedule sh, classes cl, courses c, specialties sp
-    WHERE g.spec_id = sp.spec_id AND c.spec_id = sp.spec_id AND c.course_id = cl.course_id AND cl.class_id = sh.class_id AND shedule_full_materialized.shedule_id = sh.shedule_id AND g.group_id = NEW.group_id;
+    USING
+        shedule sh,
+        classes cl,
+        courses c,
+        specialties sp,
+        groups g
+    WHERE
+        sh.class_id    = cl.class_id
+        AND cl.course_id    = c.course_id
+        AND c.spec_id       = sp.spec_id
+        AND g.spec_id       = sp.spec_id
+        AND shedule_full_materialized.shedule_id = sh.shedule_id
+        AND g.group_id      = NEW.group_id;
 
     INSERT INTO shedule_full_materialized
     SELECT
