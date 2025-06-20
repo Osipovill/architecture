@@ -98,6 +98,30 @@ async def handle_department(coll, after):
         pending_depts.setdefault(iid, []).append(after)
         logger.info(f"Buffered department {did} for institute {iid}")
 
+async def delete_university(coll, before):
+    uid = before["university_id"]
+    await coll.delete_one({"university_id": uid})
+    logger.info(f"Deleted university {uid}")
+
+async def delete_institute(coll, before):
+    uid = before["university_id"]
+    iid = before["institute_id"]
+    await coll.update_one(
+        {"university_id": uid},
+        {"$pull": {"institutes": {"institute_id": iid}}}
+    )
+    logger.info(f"Deleted institute {iid} from university {uid}")
+
+async def delete_department(coll, before):
+    iid = before["institute_id"]
+    did = before["dept_id"]
+    await coll.update_one(
+        {"institutes.institute_id": iid},
+        {"$pull": {"institutes.$.departments": {"department_id": did}}}
+    )
+    logger.info(f"Deleted department {did} from institute {iid}")
+
+
 async def consume():
     client = AsyncIOMotorClient(MONGO_URI)
     coll = client[MONGO_DB][MONGO_COLL]
@@ -110,22 +134,35 @@ async def consume():
         group_id=KAFKA_GROUP_ID,
         auto_offset_reset='earliest',
         enable_auto_commit=False,
-        value_deserializer=lambda v: json.loads(v.decode())
+        value_deserializer=lambda v: json.loads(v.decode()) if v is not None else None
     )
 
     await consumer.start()
     try:
         async for msg in consumer:
-            after = msg.value.get("after")
-            if not after:
+            if msg.value is None:
                 continue
+            op = msg.value.get("op")  
+            before = msg.value.get("before")
+            after = msg.value.get("after")
             table = msg.topic.split('.')[-1]
-            if table == "universities":
-                await handle_university(coll, after)
-            elif table == "institutes":
-                await handle_institute(coll, after)
-            elif table == "departments":
-                await handle_department(coll, after)
+            
+            if op == 'd':
+                if table == "universities":
+                    await delete_university(coll, before)
+                elif table == "institutes":
+                    await delete_institute(coll, before)
+                elif table == "departments":
+                    await delete_department(coll, before)
+            elif op in ('c', 'u', 'r'):
+                if table == "universities":
+                    await handle_university(coll, after)
+                elif table == "institutes":
+                    await handle_institute(coll, after)
+                elif table == "departments":
+                    await handle_department(coll, after)
+            else:
+                logger.warning(f"Unknown op: {op}")
     finally:
         await consumer.stop()
         client.close()
