@@ -41,11 +41,6 @@ async def flush_att_for_student(session, sid):
         await _do_attendance(session, after)
     logger.info(f"Flushed buffered attendances for student={sid}")
 
-async def flush_att_for_schedule(session, sch):
-    """Если для занятия есть buffered attendances — обработать их."""
-    # но мы буферим по student, достаточно в handle_student
-    pass
-
 async def _do_attendance(session, after):
     sid = after["student_id"]
     sch = after["shedule_id"]
@@ -72,6 +67,13 @@ async def handle_group(session, after):
     )
     logger.info(f"Group upserted: {after['group_id']}")
 
+async def handle_group_delete(session, before):
+    await session.run(
+        "MATCH (g:Group {id:$id}) DETACH DELETE g",
+        id=before["group_id"]
+    )
+    logger.info(f"Group deleted: {before['group_id']}")
+
 async def handle_student(session, after):
     sid = after["student_id"]
     gid = after["group_id"]
@@ -91,6 +93,13 @@ async def handle_student(session, after):
 
     # после появления студента — можно сбросить buffered attendances
     await flush_att_for_student(session, sid)
+
+async def handle_student_delete(session, before):
+    await session.run(
+        "MATCH (s:Student {id:$sid}) DETACH DELETE s",
+        sid=before["student_id"]
+    )
+    logger.info(f"Student deleted: {before['student_id']}")
 
 async def handle_schedule(session, after):
     sid = after["shedule_id"]
@@ -129,12 +138,18 @@ async def handle_schedule(session, after):
     # если для этого занятия были buffered attendances — можно сбросить их
     # (если буферифвали по schedule_id — тут бы был аналогичный flush)
 
+async def handle_schedule_delete(session, before):
+    await session.run(
+        "MATCH (sch:Schedule {id:$sid}) DETACH DELETE sch",
+        sid=before["shedule_id"]
+    )
+    logger.info(f"Schedule deleted: {before['shedule_id']}")
+
 async def handle_attendance(session, after):
     sid = after["student_id"]
     sch = after["shedule_id"]
 
     # если студент ещё не создан — буферизуем
-    # (иначе сразу пишем)
     result = await session.run(
         "MATCH (s:Student {id:$sid}) RETURN s", sid=sid
     )
@@ -144,6 +159,17 @@ async def handle_attendance(session, after):
         return
 
     await _do_attendance(session, after)
+
+async def handle_attendance_delete(session, before):
+    await session.run(
+        """
+        MATCH (s:Student {id:$sid})-[r:ATTENDED]->(sch:Schedule {id:$sch})
+        DELETE r
+        """,
+        sid=before["student_id"],
+        sch=before["shedule_id"]
+    )
+    logger.info(f"Attendance deleted: student={before['student_id']} → schedule={before['shedule_id']}")
 
 async def consume():
     global driver
@@ -157,25 +183,49 @@ async def consume():
         group_id=KAFKA_GROUP_ID,
         auto_offset_reset='earliest',
         enable_auto_commit=False,
-        value_deserializer=lambda v: json.loads(v.decode())
+        value_deserializer=lambda v: json.loads(v.decode()) if v is not None else None
     )
     await consumer.start()
     try:
         async for msg in consumer:
-            after = msg.value.get("after")
-            if not after:
+            payload = msg.value
+
+            if payload is None:
                 continue
+
+            op = payload.get("op")
+            if op not in ('c', 'u', 'd', 'r'):
+                continue
+
+            before = payload.get("before") or {}
+            after = payload.get("after") or {}
             table = msg.topic.split('.')[-1]
+
             async with driver.session() as session:
                 if table == "groups":
-                    await handle_group(session, after)
+                    if op == 'd':
+                        await handle_group_delete(session, before)
+                    else:
+                        await handle_group(session, after)
+
                 elif table == "students":
-                    await handle_student(session, after)
+                    if op == 'd':
+                        await handle_student_delete(session, before)
+                    else:
+                        await handle_student(session, after)
+
                 elif table == "shedule_full_materialized":
-                    await handle_schedule(session, after)
+                    if op == 'd':
+                        await handle_schedule_delete(session, before)
+                    else:
+                        await handle_schedule(session, after)
+
                 elif table == "attendances":
-                    await handle_attendance(session, after)
-            # коммитим вручную
+                    if op == 'd':
+                        await handle_attendance_delete(session, before)
+                    else:
+                        await handle_attendance(session, after)
+
             await consumer.commit()
     finally:
         await consumer.stop()
