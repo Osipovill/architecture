@@ -146,7 +146,23 @@ async def handle_attendance(session, after):
     sid = after["student_id"]
     sch = after["shedule_id"]
 
-    # если студент ещё не создан — буферизуем
+    # По умолчанию считаем presence == True (если поле отсутствует)
+    presence = after.get("presence", True)
+
+    if not presence:
+        # Если presence == False — удалить связь
+        await session.run(
+            """
+            MATCH (s:Student {id:$sid})-[r:ATTENDED]->(sch:Schedule {id:$sch})
+            DELETE r
+            """,
+            sid=sid,
+            sch=sch
+        )
+        logger.info(f"Attendance REMOVED (presence=False): student={sid} → schedule={sch}")
+        return
+
+    # если студента нет — буферизовать
     result = await session.run(
         "MATCH (s:Student {id:$sid}) RETURN s", sid=sid
     )
